@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Lock, LogIn, Sun, Moon, ChevronRight, Shield, Globe } from 'lucide-react';
+import { Mail, Lock, LogIn, Sun, Moon, ChevronRight, Shield, Globe, Eye, EyeOff } from 'lucide-react';
 import WTXLogo from '../assets/WTX-Logo.png';
 import DemoProject1 from '../assets/Demo-Project-1.jpg';
 import { ContactModal } from './ContactModal';
@@ -10,11 +10,13 @@ interface LoginProps {
   setIsAuthenticated: (value: boolean) => void;
   setIsAdmin: (value: boolean) => void;
   setUserProfile: (profile: any) => void;
+  setActiveTab?: (tab: string) => void;
 }
 
-export function Login({ setIsAuthenticated, setIsAdmin, setUserProfile }: LoginProps) {
+export function Login({ setIsAuthenticated, setIsAdmin, setUserProfile, setActiveTab }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [showContactModal, setShowContactModal] = useState(false);
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -39,8 +41,15 @@ export function Login({ setIsAuthenticated, setIsAdmin, setUserProfile }: LoginP
       .eq('id', data.user.id)
       .single();
     setIsAuthenticated(true);
-    setIsAdmin(userProfile?.role === 'admin');
+    const isAdminUser = userProfile?.role === 'admin';
+    setIsAdmin(isAdminUser);
     setUserProfile(userProfile);
+    
+    // Ensure dashboard tab is active when admin logs in
+    if (isAdminUser && setActiveTab) {
+      setActiveTab('dashboard');
+    }
+    
     setSuccessMsg('Login successful! Redirecting...');
   };
 
@@ -155,12 +164,24 @@ export function Login({ setIsAuthenticated, setIsAdmin, setUserProfile }: LoginP
                   </div>
                   <input
                     id="password"
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="block w-full pl-12 pr-4 py-3.5 bg-[var(--input-background)] border border-[var(--input-border)] rounded-xl text-[var(--input-text)] placeholder-[var(--input-placeholder)] focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                    className="block w-full pl-12 pr-12 py-3.5 bg-[var(--input-background)] border border-[var(--input-border)] rounded-xl text-[var(--input-text)] placeholder-[var(--input-placeholder)] focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
                     placeholder="Enter your password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-4 flex items-center text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5" />
+                    ) : (
+                      <Eye className="h-5 w-5" />
+                    )}
+                  </button>
                 </div>
               </div>
 

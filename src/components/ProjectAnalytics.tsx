@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, DollarSign, Droplets, TrendingUp, Calendar, MapPin } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, ReferenceLine } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, ComposedChart, Line } from 'recharts';
 
 interface ProjectAnalyticsProps {
   project: any;
@@ -15,41 +15,27 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   // Initialize the content to be displayed in the tooltip
   const tooltipContent: JSX.Element[] = [];
 
-  // If the hovered row is "Investment", show only the investment amount
-  if (label === 'Investment') {
-    const investmentValue = payload.find((entry: any) => entry.dataKey === 'investmentAmount')?.value || 0;
-    if (investmentValue > 0) {
-      tooltipContent.push(
-        <p key="investment">
-          <span className="text-gray-400">
-            Investment: ${investmentValue.toLocaleString()}
-          </span>
-        </p>
-      );
-    }
-  } else {
-    // For monthly production rows, show both Monthly and Cumulative
-    const monthlyValue = payload.find((entry: any) => entry.dataKey === 'monthly')?.value || 0;
-    const cumulativeValue = payload.find((entry: any) => entry.dataKey === 'cumulative')?.value || 0;
+  // Show Monthly Payout and Monthly ROI %
+  const monthlyValue = payload.find((entry: any) => entry.dataKey === 'monthly')?.value || 0;
+  const monthlyROIValue = payload.find((entry: any) => entry.dataKey === 'monthlyROI')?.value || 0;
 
-    if (monthlyValue > 0) {
-      tooltipContent.push(
-        <p key="monthly">
-          <span className="text-blue-400">
-            Monthly: ${monthlyValue.toLocaleString()}
-          </span>
-        </p>
-      );
-    }
-    if (cumulativeValue > 0) {
-      tooltipContent.push(
-        <p key="cumulative">
-          <span className="text-orange-400">
-            Cumulative: ${cumulativeValue.toLocaleString()}
-          </span>
-        </p>
-      );
-    }
+  if (monthlyValue > 0) {
+    tooltipContent.push(
+      <p key="monthly">
+        <span className="text-blue-400">
+          Monthly Payout: ${monthlyValue.toLocaleString()}
+        </span>
+      </p>
+    );
+  }
+  if (monthlyROIValue > 0) {
+    tooltipContent.push(
+      <p key="monthlyROI">
+        <span className="text-green-400">
+          Monthly ROI: {monthlyROIValue.toFixed(2)}%
+        </span>
+      </p>
+    );
   }
 
   // If there's no content to display, return null
@@ -68,68 +54,70 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 export function ProjectAnalytics({ project, onBack }: ProjectAnalyticsProps) {
   const [selectedTimeRange, setSelectedTimeRange] = useState('6m');
 
-  const productionData = [
-    { month: 'Jan', production: 1800, revenue: 148500, barrelPrice: 82.50, monthlyIncome: 6250 },
-    { month: 'Feb', production: 1875, revenue: 157875, barrelPrice: 84.20, monthlyIncome: 6250 },
-    { month: 'Mar', production: 1950, revenue: 167310, barrelPrice: 85.80, monthlyIncome: 6250 },
-    { month: 'Apr', production: 2025, revenue: 175972, barrelPrice: 86.90, monthlyIncome: 6250 },
-    { month: 'May', production: 2075, revenue: 181355, barrelPrice: 87.40, monthlyIncome: 6250 },
-    { month: 'Jun', production: 2125, revenue: 187425, barrelPrice: 88.20, monthlyIncome: 6250 },
-  ];
+  // Get real project data
+  const projectData = project.projectData || [];
+  const investedAmount = project.investedAmount || 0;
+  const totalPayouts = projectData
+    .filter((p: any) => p.payout_amount)
+    .reduce((sum: number, p: any) => sum + Number(p.payout_amount || 0), 0);
+  const averageMonthlyPayout = project.averageMonthlyPayoutAmount || 0;
+  const currentValue = totalPayouts; // Sum of all payout amounts for this project
+  const returnPct = investedAmount > 0 ? ((totalPayouts / investedAmount) * 100).toFixed(1) : '0.0';
+  const percentageOwned = projectData[0]?.percentage_owned || 0;
 
-  const monthlyReturns = [
-    { month: 'Jan', returns: 22500 },
-    { month: 'Feb', returns: 24800 },
-    { month: 'Mar', returns: 27500 },
-    { month: 'Apr', returns: 28900 },
-    { month: 'May', returns: 31200 },
-    { month: 'Jun', returns: 33500 },
-  ];
+  // Helper function to get month name
+  const getMonthName = (monthNum: number): string => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[monthNum - 1] || 'Unknown';
+  };
 
-  const stats = [
-    {
-      label: 'Your Investment',
-      value: '$125,000',
-      icon: DollarSign,
-      color: 'blue',
-    },
-    {
-      label: 'Current Value',
-      value: '$153,750',
-      icon: TrendingUp,
-      color: 'green',
-      change: '+22.5%',
-    },
-    {
-      label: 'Monthly Distribution',
-      value: '$6,250',
-      icon: DollarSign,
-      color: 'yellow',
-      change: '+15.2%',
-    },
-    {
-      label: 'Your Share',
-      value: '2,125 BBL/mo',
-      icon: Droplets,
-      color: 'purple',
-    },
-  ];
+  // Generate monthly returns data from payouts
+  const monthlyReturnsMap = new Map<string, number>();
+  projectData.forEach((item: any) => {
+    if (item.payout_amount && item.payout_month && item.payout_year) {
+      const key = `${item.payout_year}-${String(item.payout_month).padStart(2, '0')}`;
+      monthlyReturnsMap.set(key, (monthlyReturnsMap.get(key) || 0) + Number(item.payout_amount || 0));
+    }
+  });
 
-  const investment = 92000;
-  const payoutData = [
-    { label: 'Investment', monthly: 0, investmentAmount: 92000 },
-    { label: 'May Production', monthly: 2807.66, investmentAmount: 0 },
-    { label: 'June Production', monthly: 4627.87, investmentAmount: 0 },
-    { label: 'July Production', monthly: 5905.48, investmentAmount: 0 },
-    { label: 'August Production', monthly: 8586.58, investmentAmount: 0 },
-    { label: 'September Production', monthly: 11101.48, investmentAmount: 0 },
-    { label: 'October Production', monthly: 14622.68, investmentAmount: 0 },
-    { label: 'November Production', monthly: 14227.82, investmentAmount: 0 },
-    { label: 'December Production', monthly: 14941.46, investmentAmount: 0 },
-    { label: 'January Production', monthly: 15974.30, investmentAmount: 0 },
-    { label: 'February Production', monthly: 13317.13, investmentAmount: 0 },
-  ];
+  const monthlyReturns = Array.from(monthlyReturnsMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, amount]) => {
+      const [year, month] = key.split('-');
+      return {
+        month: getMonthName(Number(month)),
+        returns: amount,
+        year: Number(year),
+        sortKey: key,
+      };
+    })
+    .slice(-12); // Get last 12 months
 
+  // Generate payout progress data - showing Monthly Payout and Monthly ROI %
+  const payoutData = projectData
+    .filter((p: any) => p.payout_amount && p.payout_month && p.payout_year)
+    .sort((a: any, b: any) => {
+      const yearA = Number(a.payout_year);
+      const yearB = Number(b.payout_year);
+      if (yearA !== yearB) return yearA - yearB;
+      return Number(a.payout_month) - Number(b.payout_month);
+    })
+    .map((p: any) => {
+      const monthName = getMonthName(Number(p.payout_month));
+      const year = p.payout_year;
+      const monthlyPayout = Number(p.payout_amount || 0);
+      // Calculate Monthly ROI % = (Monthly Payout / Investment) * 100
+      const monthlyROI = investedAmount > 0 ? (monthlyPayout / investedAmount) * 100 : 0;
+      // Shorten label for better display: "Jan '24" instead of full month name
+      const shortMonthName = monthName.substring(0, 3);
+      return {
+        label: `${shortMonthName} '${year.toString().slice(-2)}`,
+        monthly: monthlyPayout,
+        monthlyROI: monthlyROI,
+      };
+    });
+
+  // Calculate cumulative for percentage recovered calculation
   let cumulative = 0;
   const payoutChartData = payoutData.map((item) => {
     cumulative += item.monthly;
@@ -139,8 +127,46 @@ export function ProjectAnalytics({ project, onBack }: ProjectAnalyticsProps) {
     };
   });
 
-  const latestCumulative = payoutChartData[payoutChartData.length - 1].cumulative;
-  const percentageRecovered = (latestCumulative / investment) * 100;
+  const latestCumulative = payoutChartData.length > 0 ? payoutChartData[payoutChartData.length - 1].cumulative : 0;
+  const percentageRecovered = investedAmount > 0 ? (latestCumulative / investedAmount) * 100 : 0;
+
+  // Stats
+  const stats = [
+    {
+      label: 'Your Investment',
+      value: `$${investedAmount.toLocaleString()}`,
+      icon: DollarSign,
+      color: 'blue',
+    },
+    {
+      label: 'Total Payouts',
+      value: `$${currentValue.toLocaleString()}`,
+      icon: TrendingUp,
+      color: 'green',
+      change: `+${returnPct}%`,
+    },
+    {
+      label: 'Average Monthly Payout',
+      value: `$${Math.round(averageMonthlyPayout).toLocaleString()}`,
+      icon: DollarSign,
+      color: 'yellow',
+    },
+    {
+      label: 'Your Share',
+      value: `${percentageOwned}%`,
+      icon: Droplets,
+      color: 'purple',
+    },
+  ];
+
+  // For production data, we don't have production numbers, so we'll use payout data as revenue
+  const productionData = monthlyReturns.map((item) => ({
+    month: item.month,
+    production: 0, // We don't have production data
+    revenue: item.returns,
+    barrelPrice: 0, // We don't have barrel price data
+    monthlyIncome: item.returns,
+  }));
 
   return (
     <main className="flex-1 overflow-y-auto bg-apple-gradient p-6">
@@ -208,7 +234,7 @@ export function ProjectAnalytics({ project, onBack }: ProjectAnalyticsProps) {
             </div>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={productionData}>
+                <AreaChart data={productionData.length > 0 ? productionData : [{ month: 'No Data', revenue: 0, monthlyIncome: 0 }]}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                   <defs>
                     <linearGradient id="colorProduction" x1="0" y1="0" x2="0" y2="1">
@@ -283,23 +309,29 @@ export function ProjectAnalytics({ project, onBack }: ProjectAnalyticsProps) {
                 <option value="1y">Last Year</option>
               </select>
             </div>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyReturns}>
-                  <XAxis dataKey="name" stroke="var(--text-muted)" />
-                  <YAxis stroke="var(--text-muted)" tickFormatter={(value) => `$${value/1000}k`} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--card-background)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '0.75rem',
-                    }}
-                    formatter={(value) => [`$${value.toLocaleString()}`, 'Monthly Return']}
-                  />
-                  <Bar dataKey="returns" fill="#10B981" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {monthlyReturns.length > 0 ? (
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyReturns}>
+                    <XAxis dataKey="month" stroke="var(--text-muted)" />
+                    <YAxis stroke="var(--text-muted)" tickFormatter={(value) => `$${value/1000}k`} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--card-background)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '0.75rem',
+                      }}
+                      formatter={(value) => [`$${value.toLocaleString()}`, 'Monthly Return']}
+                    />
+                    <Bar dataKey="returns" fill="#10B981" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="text-center text-gray-400 py-8">
+                <p>No payout data available for this project</p>
+              </div>
+            )}
           </div>
 
           {/* Payout Progress Chart */}
@@ -311,7 +343,7 @@ export function ProjectAnalytics({ project, onBack }: ProjectAnalyticsProps) {
               <div className="flex items-center space-x-4">
                 <div>
                   <p className="text-sm text-gray-400">Original Investment</p>
-                  <p className="text-lg font-semibold text-white">${investment.toLocaleString()}</p>
+                  <p className="text-lg font-semibold text-white">${investedAmount.toLocaleString()}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-400">Investment Recovered</p>
@@ -319,74 +351,78 @@ export function ProjectAnalytics({ project, onBack }: ProjectAnalyticsProps) {
                 </div>
               </div>
             </div>
-            <div className="h-[500px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={payoutChartData}
-                  layout="vertical"
-                  margin={{ top: 20, right: 50, left: 50, bottom: 20 }}
-                >
-                  <CartesianGrid strokeDasharray="5 5" stroke="#4B5563" strokeOpacity={0.3} />
-                  <XAxis
-                    type="number"
-                    stroke="#9CA3AF"
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                    tickFormatter={(value) => `$${value.toLocaleString()}`}
-                    domain={[0, 120000]}
-                    ticks={[0, 30000, 60000, 90000, 120000]}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="label"
-                    stroke="#9CA3AF"
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                    width={150}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    iconType="square"
-                    iconSize={12}
-                    wrapperStyle={{ fontSize: '12px', color: '#9CA3AF' }}
-                  />
-                  <ReferenceLine
-                    x={investment}
-                    stroke="#2563EB"
-                    strokeDasharray="6 2"
-                    label={{
-                      value: 'Investment',
-                      position: 'top',
-                      fill: '#2563EB',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      offset: 10,
-                    }}
-                  />
-                  <Bar
-                    dataKey="investmentAmount"
-                    fill="#6B7280"
-                    name="Investment"
-                    barSize={22}
-                    radius={[8, 8, 8, 8]}
-                  />
-                  <Bar
-                    dataKey="monthly"
-                    fill="#2563EB"
-                    name="Monthly"
-                    barSize={22}
-                    radius={[8, 8, 8, 8]}
-                  />
-                  <Bar
-                    dataKey="cumulative"
-                    fill="#FB923C"
-                    name="Cumulative"
-                    barSize={22}
-                    radius={[8, 8, 8, 8]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {payoutChartData.length > 0 ? (
+              <div className="h-[500px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart
+                    data={payoutChartData}
+                    margin={{ top: 30, right: 80, left: 60, bottom: 100 }}
+                  >
+                    <CartesianGrid strokeDasharray="5 5" stroke="#4B5563" strokeOpacity={0.3} />
+                    <XAxis
+                      dataKey="label"
+                      stroke="#9CA3AF"
+                      tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                      height={100}
+                      tickMargin={8}
+                      angle={-45}
+                      textAnchor="end"
+                      interval={0}
+                      width={80}
+                    />
+                    <YAxis
+                      yAxisId="payout"
+                      stroke="#2563EB"
+                      tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                      tickFormatter={(value) => {
+                        if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+                        if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`;
+                        return `$${value}`;
+                      }}
+                      width={70}
+                    />
+                    <YAxis
+                      yAxisId="roi"
+                      orientation="right"
+                      stroke="#10B981"
+                      tick={{ fill: '#10B981', fontSize: 11 }}
+                      tickFormatter={(value) => `${value.toFixed(1)}%`}
+                      width={70}
+                    />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Legend
+                      verticalAlign="top"
+                      height={40}
+                      iconType="square"
+                      iconSize={12}
+                      wrapperStyle={{ fontSize: '12px', color: '#9CA3AF', paddingBottom: '10px' }}
+                    />
+                    <Bar
+                      yAxisId="payout"
+                      dataKey="monthly"
+                      fill="#2563EB"
+                      name="Monthly Payout"
+                      barSize={payoutChartData.length > 12 ? 20 : 28}
+                      radius={[4, 4, 0, 0]}
+                    />
+                    <Line
+                      yAxisId="roi"
+                      type="monotone"
+                      dataKey="monthlyROI"
+                      name="Monthly ROI %"
+                      stroke="#10B981"
+                      strokeWidth={2.5}
+                      dot={{ r: 3, fill: '#10B981', strokeWidth: 1.5, stroke: '#10B981' }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="text-center text-gray-400 py-8">
+                <p>No payout data available for this project</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -396,27 +432,29 @@ export function ProjectAnalytics({ project, onBack }: ProjectAnalyticsProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <div>
               <p className="text-sm text-gray-400">Investment Date</p>
-              <p className="text-lg font-semibold text-white">June 15, 2023</p>
+              <p className="text-lg font-semibold text-white">
+                {project.startDate ? new Date(project.startDate).toLocaleDateString() : 'N/A'}
+              </p>
             </div>
             <div>
               <p className="text-sm text-gray-400">Initial Investment</p>
-              <p className="text-lg font-semibold text-white">$125,000</p>
+              <p className="text-lg font-semibold text-white">${investedAmount.toLocaleString()}</p>
             </div>
             <div>
               <p className="text-sm text-gray-400">Total Return</p>
-              <p className="text-lg font-semibold text-green-400">+$28,750</p>
+              <p className="text-lg font-semibold text-green-400">+${totalPayouts.toLocaleString()}</p>
             </div>
             <div>
               <p className="text-sm text-gray-400">Return Rate</p>
-              <p className="text-lg font-semibold text-green-400">+22.5%</p>
+              <p className="text-lg font-semibold text-green-400">+{returnPct}%</p>
             </div>
             <div>
-              <p className="text-sm text-gray-400">Monthly Distribution</p>
-              <p className="text-lg font-semibold text-green-400">$6,250</p>
+              <p className="text-sm text-gray-400">Average Monthly Payout</p>
+              <p className="text-lg font-semibold text-green-400">${Math.round(averageMonthlyPayout).toLocaleString()}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-400">Distribution Frequency</p>
-              <p className="text-lg font-semibold text-white">Monthly</p>
+              <p className="text-sm text-gray-400">Ownership Percentage</p>
+              <p className="text-lg font-semibold text-white">{percentageOwned}%</p>
             </div>
           </div>
         </div>

@@ -1,347 +1,487 @@
-import React, { useState } from 'react';
-import { X, DollarSign, Calendar, Search } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, User, Mail, Phone, MapPin, CreditCard, Calendar, Briefcase, DollarSign, Percent, Loader2, CheckCircle2, Building2, Banknote } from 'lucide-react';
+import { fetchProjectsWithInvestorCount, addInvestor } from '../../api/services';
 
 interface AddInvestorModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (investorData: any) => void;
-  project: any;
+  onSuccess?: () => void;
 }
 
-export function AddInvestorModal({ isOpen, onClose, onSubmit, project }: AddInvestorModalProps) {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedInvestor, setSelectedInvestor] = useState<any>(null);
-  const [investmentType, setInvestmentType] = useState<'units' | 'amount'>('units');
-  const [investment, setInvestment] = useState('');
-  const [discount, setDiscount] = useState('');
-  const [discountMemo, setDiscountMemo] = useState('');
-  const [hasDiscount, setHasDiscount] = useState(false);
-  const [outstandingBalance, setOutstandingBalance] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [hasOutstandingBalance, setHasOutstandingBalance] = useState(false);
+interface Project {
+  id: string;
+  project_name: string;
+}
 
-  // Mock available investors - in a real app, this would come from the database
-  const availableInvestors = [
-    { id: '1', name: 'Sarah Johnson', email: 'sarah.j@example.com', type: 'Individual' },
-    { id: '2', name: 'Michael Chen', email: 'm.chen@example.com', type: 'Individual' },
-    { id: '3', name: 'Emma Davis', email: 'emma.d@example.com', type: 'Individual' },
-    { id: '4', name: 'James Wilson', email: 'j.wilson@example.com', type: 'Individual' },
-    { id: '5', name: 'Lisa Anderson', email: 'lisa.a@example.com', type: 'Individual' },
-    { id: '6', name: 'Robert Thompson', email: 'r.thompson@example.com', type: 'Individual' },
-    { id: '7', name: 'Jennifer Martinez', email: 'j.martinez@example.com', type: 'Individual' },
-    { id: '8', name: 'William Brown', email: 'w.brown@example.com', type: 'Individual' },
-    { id: '9', name: 'Maria Garcia', email: 'm.garcia@example.com', type: 'Individual' },
-    { id: '10', name: 'David Lee', email: 'd.lee@example.com', type: 'Individual' }
-  ].filter(investor => 
-    !project.investors?.some((i: any) => i.email === investor.email)
-  );
+export function AddInvestorModal({ isOpen, onClose, onSuccess }: AddInvestorModalProps) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
 
-  const filteredInvestors = availableInvestors.filter(investor =>
-    investor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    investor.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const [formData, setFormData] = useState({
+    // Personal Details
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    ssn: '',
+    dob: '',
+    companyName: '',
+    // Banking Details
+    bank: '',
+    routingNo: '',
+    accountNo: '',
+    accountType: '',
+    // Professional Details
+    projectId: '',
+    investmentAmount: '',
+    ownershipPercentage: '',
+  });
 
-  const calculateUnits = (value: string, type: 'units' | 'amount') => {
-    if (!value) return 0;
-    const numValue = parseFloat(value);
-    if (isNaN(numValue)) return 0;
+  useEffect(() => {
+    if (isOpen) {
+      // Reset form when modal opens
+      setFormData({
+        name: '',
+        email: '',
+        phone: '',
+        address: '',
+        ssn: '',
+        dob: '',
+        companyName: '',
+        bank: '',
+        routingNo: '',
+        accountNo: '',
+        accountType: '',
+        projectId: '',
+        investmentAmount: '',
+        ownershipPercentage: '',
+      });
+      setError('');
+      setSuccess(false);
+      loadProjects();
+    }
+  }, [isOpen]);
 
-    if (type === 'units') {
-      return numValue;
-    } else {
-      const unitPrice = parseFloat(project.unitPrice.replace(/[^0-9.-]+/g, ''));
-      return numValue / unitPrice;
+  const loadProjects = async () => {
+    setLoadingProjects(true);
+    try {
+      const data = await fetchProjectsWithInvestorCount();
+      const mapped = (data || []).map((p: any) => ({
+        id: String(p.id || p.project_id || p.ID || p.PROJECT_ID),
+        project_name: p.project_name || p.name || p.NAME || p.PROJECT_NAME || 'Unknown Project',
+      }));
+      setProjects(mapped);
+    } catch (e) {
+      console.error('Failed to load projects:', e);
+      setProjects([]);
+    } finally {
+      setLoadingProjects(false);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedInvestor || !investment) return;
+    setError('');
+    setIsSubmitting(true);
 
-    const units = calculateUnits(investment, investmentType);
-    const investmentAmount = investmentType === 'units' 
-      ? units * parseFloat(project.unitPrice.replace(/[^0-9.-]+/g, ''))
-      : parseFloat(investment);
+    try {
+      // Validate email is provided (required)
+      if (!formData.email || !formData.email.trim()) {
+        throw new Error('Email is required to create an investor account');
+      }
 
-    onSubmit({
-      name: selectedInvestor.name,
-      email: selectedInvestor.email,
-      type: 'Individual',
-      units,
-      investment: `$${investmentAmount.toLocaleString()}`,
-      discount: hasDiscount ? discount : null,
-      discountMemo: hasDiscount ? discountMemo : null,
-      outstandingBalance: hasOutstandingBalance ? outstandingBalance : null,
-      dueDate: hasOutstandingBalance ? dueDate : null,
-      joinDate: new Date().toISOString().slice(0, 10)
-    });
+      // Call Edge Function to add investor
+      const params = {
+        full_name: formData.name || undefined,
+        email: formData.email.trim(),
+        phone: formData.phone || undefined,
+        dob: formData.dob || undefined,
+        address: formData.address || undefined,
+        company: formData.companyName || undefined,
+        ssn: formData.ssn || undefined,
+        bank: formData.bank || undefined,
+        routing: formData.routingNo || undefined,
+        account: formData.accountNo || undefined,
+        account_type: formData.accountType || undefined,
+        project_id: formData.projectId || undefined,
+        invested_amount: formData.investmentAmount ? parseFloat(formData.investmentAmount) : undefined,
+        percentage_owned: formData.ownershipPercentage ? parseFloat(formData.ownershipPercentage) : undefined,
+      };
 
-    // Reset form
-    setSelectedInvestor(null);
-    setInvestmentType('units');
-    setInvestment('');
-    setDiscount('');
-    setDiscountMemo('');
-    setHasDiscount(false);
-    setOutstandingBalance('');
-    setDueDate('');
-    setHasOutstandingBalance(false);
-    onClose();
+      await addInvestor(params);
+      console.log('Investor added successfully');
+
+      setSuccess(true);
+      
+      // Call onSuccess callback if provided
+      if (onSuccess) {
+        setTimeout(() => {
+          onSuccess();
+          onClose();
+        }, 2000);
+      } else {
+        setTimeout(() => {
+          onClose();
+        }, 2000);
+      }
+    } catch (err: unknown) {
+      console.error('Error adding investor:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add investor. Please try again.';
+      setError(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
   };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-      <div className="bg-card-gradient rounded-2xl p-6 max-w-2xl w-full my-4">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-white">Add New Investor</h2>
+      <div className="bg-card-gradient rounded-2xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center space-x-3">
+            <User className="h-6 w-6 text-green-400" />
+            <h2 className="text-xl font-semibold text-white">Add New Investor</h2>
+          </div>
           <button
             onClick={onClose}
             className="p-2 text-gray-400 hover:text-gray-300 transition-colors"
+            disabled={isSubmitting}
           >
             <X className="h-6 w-6" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Investor Selection */}
-          {!selectedInvestor ? (
-            <div>
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search investors..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+        {success ? (
+          <div className="flex flex-col items-center justify-center py-12">
+            <CheckCircle2 className="h-16 w-16 text-green-400 mb-4 animate-bounce-in" />
+            <h3 className="text-xl font-semibold text-white mb-2">Investor Added Successfully!</h3>
+            <p className="text-gray-400 mb-6 text-center">
+              The investor has been added to the database and an invite link has been generated.
+            </p>
+            <p className="text-sm text-gray-500 text-center">
+              Closing automatically...
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {error && (
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20">
+                <p className="text-red-400 text-sm">{error}</p>
               </div>
-              <div className="space-y-2 max-h-[calc(100vh-300px)] overflow-y-auto">
-                {filteredInvestors.map((investor) => (
-                  <div
-                    key={investor.id}
-                    className="w-full flex items-center justify-between p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
-                    onClick={() => setSelectedInvestor(investor)}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                        <span className="text-blue-400 font-semibold">
-                          {investor.name.split(' ').map(n => n[0]).join('')}
-                        </span>
-                      </div>
-                      <div className="text-left">
-                        <div className="font-medium text-white">{investor.name}</div>
-                        <div className="text-sm text-gray-400">{investor.email}</div>
-                      </div>
-                    </div>
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                      {investor.type}
-                    </span>
-                  </div>
-                ))}
-                {filteredInvestors.length === 0 && (
-                  <div className="text-center py-4 text-gray-400">
-                    No investors found matching "{searchTerm}"
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center space-x-3 p-3 rounded-xl bg-white/5">
-                <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                  <span className="text-blue-400 font-semibold">
-                    {selectedInvestor.name.split(' ').map(n => n[0]).join('')}
-                  </span>
-                </div>
-                <div>
-                  <div className="font-medium text-white">{selectedInvestor.name}</div>
-                  <div className="text-sm text-gray-400">{selectedInvestor.email}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedInvestor(null)}
-                  className="ml-auto text-gray-400 hover:text-gray-300"
-                >
-                  Change
-                </button>
-              </div>
+            )}
 
-              <div className="space-y-4">
+            {/* Personal Details Section */}
+            <div className="bg-white/5 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-white mb-6 flex items-center">
+                <User className="h-5 w-5 mr-2 text-blue-400" />
+                Personal Details
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-2">
-                    Investment Type
-                  </label>
-                  <div className="flex space-x-4">
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        value="units"
-                        checked={investmentType === 'units'}
-                        onChange={(e) => setInvestmentType(e.target.value as 'units')}
-                        className="mr-2"
-                      />
-                      <span className="text-white">Units</span>
-                    </label>
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        value="amount"
-                        checked={investmentType === 'amount'}
-                        onChange={(e) => setInvestmentType(e.target.value as 'amount')}
-                        className="mr-2"
-                      />
-                      <span className="text-white">Amount</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-2">
-                    {investmentType === 'units' ? 'Number of Units' : 'Investment Amount'}
+                    Full Name
                   </label>
                   <div className="relative">
-                    {investmentType === 'amount' && (
-                      <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                    )}
+                    <User className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                     <input
                       type="text"
-                      required
-                      value={investment}
-                      onChange={(e) => setInvestment(e.target.value)}
-                      className={`w-full ${
-                        investmentType === 'amount' ? 'pl-10' : 'px-4'
-                      } py-2 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                      placeholder={investmentType === 'units' ? 'Enter number of units' : 'Enter amount'}
+                      value={formData.name}
+                      onChange={(e) => handleChange('name', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter full name"
                     />
                   </div>
-                  {investment && (
-                    <div className="mt-2 text-sm text-gray-400">
-                      {investmentType === 'units' ? (
-                        <>Value: ${(calculateUnits(investment, 'units') * parseFloat(project.unitPrice.replace(/[^0-9.-]+/g, ''))).toLocaleString()}</>
-                      ) : (
-                        <>Units: {calculateUnits(investment, 'amount').toFixed(2)}</>
-                      )}
-                    </div>
-                  )}
                 </div>
 
                 <div>
-                  <label className="flex items-center space-x-2 text-sm text-gray-400 hover:text-gray-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={hasOutstandingBalance}
-                      onChange={(e) => setHasOutstandingBalance(e.target.checked)}
-                      className="rounded border-white/10 bg-white/5 text-blue-500 focus:ring-blue-500"
-                    />
-                    <span>Has Outstanding Balance</span>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Email Address *
                   </label>
-
-                  {hasOutstandingBalance && (
-                    <div className="mt-3 p-3 rounded-lg bg-white/5 border border-white/10 space-y-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">
-                          Outstanding Amount
-                        </label>
-                        <div className="relative">
-                          <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                          <input
-                            type="text"
-                            value={outstandingBalance}
-                            onChange={(e) => setOutstandingBalance(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Enter outstanding amount"
-                            required={hasOutstandingBalance}
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">
-                          Due Date
-                        </label>
-                        <div className="relative">
-                          <Calendar className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                          <input
-                            type="date"
-                            value={dueDate}
-                            onChange={(e) => setDueDate(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            required={hasOutstandingBalance}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="email"
+                      required
+                      value={formData.email}
+                      onChange={(e) => handleChange('email', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter email address"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <label className="flex items-center space-x-2 text-sm text-gray-400 hover:text-gray-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={hasDiscount}
-                      onChange={(e) => setHasDiscount(e.target.checked)}
-                      className="rounded border-white/10 bg-white/5 text-blue-500 focus:ring-blue-500"
-                    />
-                    <span>Add Discount</span>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Phone Number
                   </label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="tel"
+                      value={formData.phone}
+                      onChange={(e) => handleChange('phone', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter phone number"
+                    />
+                  </div>
+                </div>
 
-                  {hasDiscount && (
-                    <div className="mt-3 p-3 rounded-lg bg-white/5 border border-white/10 space-y-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">
-                          Discount Amount
-                        </label>
-                        <div className="relative">
-                          <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                          <input
-                            type="text"
-                            value={discount}
-                            onChange={(e) => setDiscount(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Enter discount amount"
-                            required={hasDiscount}
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">
-                          Reason for Discount
-                        </label>
-                        <textarea
-                          value={discountMemo}
-                          onChange={(e) => setDiscountMemo(e.target.value)}
-                          className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Enter reason for discount"
-                          rows={2}
-                          required={hasDiscount}
-                        />
-                      </div>
-                    </div>
-                  )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Date of Birth
+                  </label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="date"
+                      value={formData.dob}
+                      onChange={(e) => handleChange('dob', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Address
+                  </label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={formData.address}
+                      onChange={(e) => handleChange('address', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter full address"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Company Name
+                  </label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={formData.companyName}
+                      onChange={(e) => handleChange('companyName', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter company name"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    SSN
+                  </label>
+                  <div className="relative">
+                    <CreditCard className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={formData.ssn}
+                      onChange={(e) => handleChange('ssn', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="XXX-XX-XXXX"
+                      maxLength={11}
+                    />
+                  </div>
                 </div>
               </div>
-            </>
-          )}
+            </div>
 
-          <div className="flex justify-end space-x-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-gray-400 hover:text-gray-300 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!selectedInvestor || !investment}
-              className="px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Add Investor
-            </button>
-          </div>
-        </form>
+            {/* Banking Details Section */}
+            <div className="bg-white/5 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-white mb-6 flex items-center">
+                <Banknote className="h-5 w-5 mr-2 text-yellow-400" />
+                Banking Details
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Bank Name
+                  </label>
+                  <div className="relative">
+                    <Banknote className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={formData.bank}
+                      onChange={(e) => handleChange('bank', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter bank name"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Routing Number
+                  </label>
+                  <div className="relative">
+                    <CreditCard className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={formData.routingNo}
+                      onChange={(e) => handleChange('routingNo', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter routing number"
+                      maxLength={9}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Account Number
+                  </label>
+                  <div className="relative">
+                    <CreditCard className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={formData.accountNo}
+                      onChange={(e) => handleChange('accountNo', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter account number"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Account Type
+                  </label>
+                  <div className="relative">
+                    <CreditCard className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <select
+                      value={formData.accountType}
+                      onChange={(e) => handleChange('accountType', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
+                    >
+                      <option value="">Select account type</option>
+                      <option value="checking" className="bg-gray-800">Checking</option>
+                      <option value="savings" className="bg-gray-800">Savings</option>
+                      <option value="business" className="bg-gray-800">Business</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Professional Details Section */}
+            <div className="bg-white/5 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-white mb-6 flex items-center">
+                <Briefcase className="h-5 w-5 mr-2 text-green-400" />
+                Investment Details
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Project
+                  </label>
+                  <div className="relative">
+                    <Briefcase className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    {loadingProjects ? (
+                      <div className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-gray-400">
+                        Loading projects...
+                      </div>
+                    ) : (
+                      <select
+                        value={formData.projectId}
+                        onChange={(e) => handleChange('projectId', e.target.value)}
+                        className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
+                      >
+                        <option value="">Select a project</option>
+                        {projects.map((project) => (
+                          <option key={project.id} value={project.id} className="bg-gray-800">
+                            {project.project_name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Investment Amount
+                  </label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.investmentAmount}
+                      onChange={(e) => handleChange('investmentAmount', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter investment amount"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Ownership Percentage
+                  </label>
+                  <div className="relative">
+                    <Percent className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={formData.ownershipPercentage}
+                      onChange={(e) => handleChange('ownershipPercentage', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter ownership %"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-4 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-6 py-2 text-gray-400 hover:text-gray-300 transition-colors"
+                disabled={isSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-6 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-colors flex items-center space-x-2"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Adding Investor...</span>
+                  </>
+                ) : (
+                  <>
+                    <User className="h-5 w-5" />
+                    <span>Add Investor & Send Invite</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

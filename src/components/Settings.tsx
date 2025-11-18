@@ -1,7 +1,51 @@
-import React, { useState } from 'react';
-import { User, Bell, Shield, Moon, Mail, Phone, Globe, Key, Languages, CreditCard, Download, HelpCircle, ChevronRight, ToggleLeft as Toggle, Cog } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { User, Bell, Shield, Moon, Mail, Phone, Globe, Key, Languages, CreditCard, Download, HelpCircle, ChevronRight, ToggleLeft as Toggle, Cog, Loader2 } from 'lucide-react';
+import { fetchInvestorPortfolioByEmail } from '../api/services';
+import { BankingDetails } from './BankingDetails';
+import { PersonalInfo } from './PersonalInfo';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
-export function Settings() {
+type PortfolioRow = {
+  investor_id?: number;
+  investor_name: string;
+  investor_email: string;
+  investor_phone?: string;
+  dob?: string;
+  address?: string;
+  company?: string;
+  account_type?: string;
+  ssn?: string;
+  bank?: string;
+  routing?: string;
+  account?: string;
+  project_id?: string;
+  project_name: string;
+  project_location?: string | null;
+  project_status?: string;
+  invested_amount: number;
+  percentage_owned: number;
+  payout_id?: string | number | null;
+  payout_amount?: number | null;
+  payout_month?: number | null;
+  payout_year?: number | null;
+  payout_created_at?: string | null;
+  // Legacy fields for backward compatibility
+  investment_amount?: number;
+  ownership_percentage?: number;
+  month?: string | number | null;
+  year?: string | number | null;
+  created_at?: string | null;
+};
+
+interface UserProfile {
+  id?: string | number;
+  full_name?: string;
+  email?: string;
+  phone?: string;
+  [key: string]: unknown;
+}
+
+export function Settings({ userProfile }: { userProfile?: UserProfile }) {
   const [notifications, setNotifications] = useState({
     email: true,
     push: true,
@@ -14,6 +58,57 @@ export function Settings() {
   const [theme, setTheme] = useState('dark');
   const [language, setLanguage] = useState('en');
   const [currency, setCurrency] = useState('USD');
+  const [portfolio, setPortfolio] = useState<PortfolioRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+
+  // Fetch portfolio data to get investor details
+  useEffect(() => {
+    const fetchPortfolioData = async () => {
+      if (!userProfile?.email) {
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const portfolioData = await fetchInvestorPortfolioByEmail(userProfile.email);
+        setPortfolio(portfolioData as PortfolioRow[]);
+      } catch (error) {
+        console.error('Error fetching portfolio:', error);
+        setPortfolio([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPortfolioData();
+  }, [userProfile?.email]);
+
+  // Get investor details from portfolio or userProfile
+  const investorName = portfolio.length > 0 ? portfolio[0].investor_name : (userProfile?.full_name || '');
+  const investorEmail = portfolio.length > 0 ? portfolio[0].investor_email : (userProfile?.email || '');
+  const investorPhone = portfolio.length > 0 ? (portfolio[0].investor_phone || '') : (userProfile?.phone || '');
+  const investorAddress = portfolio.length > 0 ? (portfolio[0].address || '') : '';
+  const investorCompany = portfolio.length > 0 ? (portfolio[0].company || '') : '';
+  const investorDOB = portfolio.length > 0 ? (portfolio[0].dob || '') : '';
+  const investorSSN = portfolio.length > 0 ? (portfolio[0].ssn || '') : '';
+  const investorBank = portfolio.length > 0 ? (portfolio[0].bank || '') : '';
+  const investorRouting = portfolio.length > 0 ? (portfolio[0].routing || '') : '';
+  const investorAccount = portfolio.length > 0 ? (portfolio[0].account || '') : '';
+
+  if (loading) {
+    return (
+      <main className="flex-1 overflow-y-auto bg-apple-gradient p-6">
+        <div className="max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+          <div className="flex flex-col items-center space-y-4">
+            <Loader2 className="h-8 w-8 text-blue-400 animate-spin" />
+            <p className="text-gray-400">Loading your settings...</p>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex-1 overflow-y-auto bg-apple-gradient p-6">
@@ -32,54 +127,30 @@ export function Settings() {
         </div>
 
         {/* Profile Settings */}
-        <div className="bg-card-gradient rounded-2xl p-6 mb-8 hover-neon-glow">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center space-x-3">
-              <User className="h-6 w-6 text-blue-400" />
-              <h2 className="text-xl font-semibold text-white">Profile Settings</h2>
-            </div>
-            <button className="px-4 py-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 hover:bg-blue-500/20 transition-colors">
-              Save Changes
-            </button>
+        <div className="mb-8">
+          <div className="flex items-center space-x-3 mb-6">
+            <User className="h-6 w-6 text-blue-400" />
+            <h2 className="text-xl font-semibold text-white">Profile Settings</h2>
           </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Full Name</label>
-              <input
-                type="text"
-                defaultValue="Daniel Leal"
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Email</label>
-              <input
-                type="email"
-                defaultValue="daniel.leal@example.com"
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Phone</label>
-              <input
-                type="tel"
-                defaultValue="+1 (555) 123-4567"
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Time Zone</label>
-              <select
-                defaultValue="America/New_York"
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="America/New_York">Eastern Time (ET)</option>
-                <option value="America/Chicago">Central Time (CT)</option>
-                <option value="America/Denver">Mountain Time (MT)</option>
-                <option value="America/Los_Angeles">Pacific Time (PT)</option>
-              </select>
-            </div>
+
+          <div className="space-y-6">
+            {/* Personal Information Component */}
+            <PersonalInfo
+              name={investorName}
+              email={investorEmail}
+              phone={investorPhone}
+              dob={investorDOB}
+              address={investorAddress}
+              company={investorCompany}
+              ssn={investorSSN}
+            />
+
+            {/* Banking Details Component */}
+            <BankingDetails
+              bank={investorBank}
+              routing={investorRouting}
+              account={investorAccount}
+            />
           </div>
         </div>
 
@@ -126,18 +197,21 @@ export function Settings() {
           </div>
           
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-white/5 flex items-center justify-between">
+            <button
+              onClick={() => setShowChangePasswordModal(true)}
+              className="w-full p-4 rounded-xl bg-white/5 flex items-center justify-between hover:bg-white/10 transition-colors"
+            >
               <div className="flex items-center space-x-4">
                 <div className="p-2 rounded-xl bg-green-500/10 text-green-400 border border-green-500/20">
                   <Key className="h-5 w-5" />
                 </div>
                 <div>
                   <h3 className="text-white font-medium">Change Password</h3>
-                  <p className="text-sm text-gray-400">Last changed 3 months ago</p>
+                  <p className="text-sm text-gray-400">Update your account password</p>
                 </div>
               </div>
               <ChevronRight className="h-5 w-5 text-gray-400" />
-            </div>
+            </button>
 
             <div className="p-4 rounded-xl bg-white/5 flex items-center justify-between">
               <div className="flex items-center space-x-4">
@@ -210,6 +284,11 @@ export function Settings() {
           </div>
         </div>
       </div>
+
+      <ChangePasswordModal
+        isOpen={showChangePasswordModal}
+        onClose={() => setShowChangePasswordModal(false)}
+      />
     </main>
   );
 }

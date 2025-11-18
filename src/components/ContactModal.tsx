@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Mail, Phone, Building, Send } from 'lucide-react';
+import { updateReferralContact } from '../api/services';
 
 interface ContactModalProps {
   isOpen: boolean;
@@ -14,12 +15,48 @@ export function ContactModal({ isOpen, onClose }: ContactModalProps) {
     company: '',
     message: ''
   });
+  const [referralCode, setReferralCode] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Check for referral code in localStorage when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const storedCode = localStorage.getItem('referral_code');
+      if (storedCode) {
+        setReferralCode(storedCode);
+      }
+    }
+  }, [isOpen]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // In a real application, this would send the data to an API
-    console.log('Contact form submitted:', formData);
-    onClose();
+    
+    try {
+      // If there's a referral code, update the referral record
+      if (referralCode) {
+        const result = await updateReferralContact(
+          referralCode,
+          formData.email,
+          formData.name
+        );
+        
+        if (result.success) {
+          // Remove referral code from localStorage after successful update
+          localStorage.removeItem('referral_code');
+          console.log('Referral updated successfully:', result);
+        } else {
+          console.warn('Failed to update referral:', result.error);
+          // Continue with form submission even if referral update fails
+        }
+      }
+      
+      // In a real application, this would send the data to an API
+      console.log('Contact form submitted:', formData);
+      onClose();
+    } catch (err) {
+      console.error('Error submitting contact form:', err);
+      // Still close the modal even if there's an error
+      onClose();
+    }
   };
 
   if (!isOpen) return null;

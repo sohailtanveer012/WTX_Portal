@@ -1,48 +1,219 @@
-import React, { useState } from 'react';
-import { ArrowLeft, Users, DollarSign, TrendingUp, Droplets, ChevronRight, Building, Calendar, MapPin, BarChart3, PieChart, Activity, Calculator, Edit, CheckCircle, FileText, Download, Filter } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { useState, useEffect } from 'react';
+import { ArrowLeft, Users, DollarSign, TrendingUp, TrendingDown, Droplets, Calendar, MapPin, BarChart3, Calculator, FileText, Download } from 'lucide-react';
 import { ProjectPayout } from './ProjectPayout';
 import { ProjectFundingView } from './ProjectFundingView';
+import { fetchProjectInvestorsByMonth, fetchInvestorsByProject, fetchProjectRevenueByMonth } from '../../api/services';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 interface ProjectViewProps {
-  projectId: string | any;
+  projectId: string | Record<string, unknown>;
   onBack: () => void;
+  initialMonth?: string;
 }
 
-export function ProjectView({ projectId, onBack }: ProjectViewProps) {
+// Type for real investor data from API
+type ProjectInvestor = {
+  investor_id?: number;
+  investor_name: string;
+  investor_email: string;
+  percentage_owned: number;
+  payout_amount: number;
+  investment_amount?: number;
+};
+
+export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProps) {
   const [selectedTimeRange, setSelectedTimeRange] = useState('6m');
   const [selectedMetric, setSelectedMetric] = useState('production');
+  const [revenueSeries, setRevenueSeries] = useState<Array<{ label: string; key: string; revenue: number }>>([]);
+  const [isLoadingRevenueSeries, setIsLoadingRevenueSeries] = useState(false);
   const [showPayout, setShowPayout] = useState(false);
-  const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [selectedInvestorView, setSelectedInvestorView] = useState('list');
   const [selectedReportType, setSelectedReportType] = useState('all');
   const [selectedReportMonth, setSelectedReportMonth] = useState(new Date().toISOString().slice(0, 7));
   const [selectedGroup, setSelectedGroup] = useState('all');
+  const [projectInvestors, setProjectInvestors] = useState<ProjectInvestor[]>([]);
+  const [baseProjectInvestors, setBaseProjectInvestors] = useState<ProjectInvestor[]>([]);
+  const [isLoadingInvestors, setIsLoadingInvestors] = useState(false);
+  const [currentInvestorPage, setCurrentInvestorPage] = useState(1);
+  const investorsPerPage = 10;
+  const [selectedMonth, setSelectedMonth] = useState(initialMonth || new Date().toISOString().slice(0, 7));
+  const [monthlyRevenue, setMonthlyRevenue] = useState<number | null>(null);
+  const [previousMonthRevenue, setPreviousMonthRevenue] = useState<number | null>(null);
+  
+  // Calculate total payout amount from investors
+  const totalPayoutAmount = projectInvestors.reduce((sum, investor) => sum + (investor.payout_amount || 0), 0);
+  
+  // Calculate percentage growth/decline
+  const getGrowthPercentage = () => {
+    if (previousMonthRevenue === null || monthlyRevenue === null || previousMonthRevenue === 0) {
+      return null;
+    }
+    return ((monthlyRevenue - previousMonthRevenue) / previousMonthRevenue) * 100;
+  };
 
-  // Use passed project data if it's a full object, otherwise use mock data
-  const project = typeof projectId === 'object' ? projectId : {
-      id: projectId,
-      name: '4 Horsemen Leasehold',
-      location: 'Cottle County, TX',
-      status: 'Active',
-      investors: 42,
-      totalInvestment: '$5M',
-      monthlyRevenue: '$1.2M',
-      completionDate: '2024-10-31',
-      description: 'Strategic oil and gas development project focused on maximizing production efficiency while maintaining environmental compliance.',
-      startDate: '2023-06-15',
-      operatingCosts: '$280K',
-      productionRate: '8,500 BBL/day',
-      recoveryRate: '85%',
-      wellCount: 12,
-      hasInvestorGroups: true,
+  // Fetch investor data when component mounts or project changes
+  useEffect(() => {
+    const fetchInvestors = async () => {
+      if (typeof projectId === 'object') {
+        // Try different possible field names for project ID
+        const actualProjectId = projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID;
+        
+        console.log('Extracted actualProjectId:', actualProjectId);
+        console.log('Type of actualProjectId:', typeof actualProjectId);
+        
+        if (actualProjectId) {
+          console.log('Fetching investors for project ID:', actualProjectId, 'month:', selectedMonth);
+          
+          // Use the project ID as-is (can be UUID string or number)
+          const projectIdToUse = String(actualProjectId);
+          
+          setIsLoadingInvestors(true);
+          try {
+            // First, get base investor data (for payout calculation)
+            const baseInvestors = await fetchInvestorsByProject(projectIdToUse);
+            setBaseProjectInvestors(baseInvestors);
+            
+            // Then, try to get month-specific data (with payouts if they exist)
+            const monthInvestors = await fetchProjectInvestorsByMonth(projectIdToUse, selectedMonth);
+            
+            // Only show month-specific data (if it exists), don't show anything if no data for that month
+            setProjectInvestors(monthInvestors);
+            setCurrentInvestorPage(1); // Reset to first page when new data loads
+            
+            console.log('Base investors:', baseInvestors);
+            console.log('Month investors:', monthInvestors);
+            
+            if (monthInvestors.length > 0) {
+              console.log('Sample investor data structure:', monthInvestors[0]);
+              console.log('Available fields in investor:', Object.keys(monthInvestors[0]));
+            }
+          } catch (error) {
+            console.error('Error fetching project investors:', error);
+            setProjectInvestors([]);
+            setBaseProjectInvestors([]);
+          } finally {
+            setIsLoadingInvestors(false);
+          }
+        } else {
+          console.error('No valid project ID found in project data:', projectId);
+        }
+      }
     };
 
+    fetchInvestors();
+  }, [projectId, selectedMonth]);
+
+  // Fetch monthly revenue and previous month revenue when project or month changes
+  useEffect(() => {
+    const fetchRevenue = async () => {
+      if (typeof projectId === 'object') {
+        const actualProjectId = projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID;
+        
+        if (actualProjectId) {
+          try {
+            // Fetch current month revenue
+            const revenue = await fetchProjectRevenueByMonth(String(actualProjectId), selectedMonth);
+            setMonthlyRevenue(revenue);
+            
+            // Calculate previous month
+            const [year, month] = selectedMonth.split('-');
+            const currentDate = new Date(parseInt(year), parseInt(month) - 1);
+            currentDate.setMonth(currentDate.getMonth() - 1);
+            const previousMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            
+            // Fetch previous month revenue
+            const prevRevenue = await fetchProjectRevenueByMonth(String(actualProjectId), previousMonth);
+            setPreviousMonthRevenue(prevRevenue);
+          } catch (error) {
+            console.error('Error fetching monthly revenue:', error);
+            setMonthlyRevenue(null);
+            setPreviousMonthRevenue(null);
+          }
+        }
+      }
+    };
+
+    fetchRevenue();
+  }, [projectId, selectedMonth]);
+
+  // Build revenue time series over the last 12 months for the Well Performance chart
+  useEffect(() => {
+    const loadRevenueSeries = async () => {
+      if (typeof projectId !== 'object') return;
+      const actualProjectId = projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID;
+      if (!actualProjectId) return;
+      // Base on the currently selected month in the page
+      const [yStr, mStr] = selectedMonth.split('-');
+      let base = new Date(parseInt(yStr), parseInt(mStr) - 1, 1);
+      const months: Array<{ key: string; label: string }> = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        months.push({ key, label });
+      }
+      setIsLoadingRevenueSeries(true);
+      try {
+        const values = await Promise.all(
+          months.map(async ({ key, label }) => {
+            const value = await fetchProjectRevenueByMonth(String(actualProjectId), key);
+            return { label, key, revenue: Number(value || 0) };
+          })
+        );
+        setRevenueSeries(values);
+      } catch (e) {
+        console.error('Failed to load revenue series:', e);
+        setRevenueSeries([]);
+      } finally {
+        setIsLoadingRevenueSeries(false);
+      }
+    };
+    loadRevenueSeries();
+  }, [projectId, selectedMonth]);
+
+  // Use passed project data - no mock data fallback
+  console.log('ProjectId object received:', projectId);
+  console.log('ProjectId keys:', typeof projectId === 'object' ? Object.keys(projectId) : 'Not an object');
+  
+  const project = typeof projectId === 'object' ? {
+      id: projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID,
+      name: projectId.project_name || projectId.name || projectId.NAME || projectId.PROJECT_NAME,
+      location: projectId.location || projectId.LOCATION,
+      status: projectId.status || projectId.STATUS,
+      investors: projectId.total_investors || projectId.investor_count || projectId.TOTAL_INVESTORS || 0,
+      totalInvestment: projectId.total_invested_amount || projectId.total_investment ? `$${(projectId.total_invested_amount || projectId.total_investment).toLocaleString()}` : 'N/A',
+      monthlyRevenue: projectId.monthly_revenue ? `$${projectId.monthly_revenue.toLocaleString()}` : 'N/A',
+      completionDate: projectId.completion_date || projectId.COMPLETION_DATE,
+      description: projectId.description || projectId.DESCRIPTION || 'No description available',
+      startDate: projectId.start_date || projectId.START_DATE,
+      operatingCosts: projectId.operating_costs ? `$${projectId.operating_costs.toLocaleString()}` : 'N/A',
+      productionRate: projectId.production_rate || 'N/A',
+      recoveryRate: projectId.recovery_rate || 'N/A',
+      wellCount: projectId.well_count || 0,
+      hasInvestorGroups: true,
+    } : null;
+
+  // Safety check for project data
+  if (!project) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-gray-400">Loading project data...</div>
+      </div>
+    );
+  }
+
   if (showPayout) {
+    const investorsToPass = baseProjectInvestors.length > 0 ? baseProjectInvestors : projectInvestors;
+    console.log('ProjectView - Passing investors to ProjectPayout:', investorsToPass);
+    console.log('ProjectView - Number of investors:', investorsToPass.length);
+    console.log('ProjectView - baseProjectInvestors:', baseProjectInvestors);
+    console.log('ProjectView - projectInvestors:', projectInvestors);
+    
     return (
       <ProjectPayout
-        projectId={projectId}
+        projectId={typeof projectId === 'string' ? projectId : projectId?.project_id || projectId?.id || ''}
         project={project}
+        investors={investorsToPass}
         onBack={() => setShowPayout(false)}
       />
     );
@@ -52,11 +223,21 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
   if (project.status === 'Funding') {
     return (
       <ProjectFundingView
-        projectId={project}
+        projectId={project?.id || ''}
         onBack={onBack}
       />
     );
   }
+
+  const growthPercent = getGrowthPercentage();
+  
+  // Helper to get previous month name
+  const getPreviousMonthName = () => {
+    const [year, month] = selectedMonth.split('-');
+    const currentDate = new Date(parseInt(year), parseInt(month) - 1);
+    currentDate.setMonth(currentDate.getMonth() - 1);
+    return currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
 
   const stats = [
     {
@@ -66,238 +247,38 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
       color: 'blue',
     },
     {
-      label: 'Latest Monthly Revenue',
-      value: project.monthlyRevenue,
-      change: '+18.3%',
-      trend: 'up',
-      icon: TrendingUp,
-      color: 'green',
+      label: `Revenue Growth compared to ${getPreviousMonthName()}`,
+      value: growthPercent !== null 
+        ? `${growthPercent >= 0 ? '+' : ''}${growthPercent.toFixed(1)}%`
+        : 'N/A',
+      icon: growthPercent !== null && growthPercent >= 0 ? TrendingUp : TrendingDown,
+      color: growthPercent !== null && growthPercent >= 0 ? 'green' : 'red',
     },
     {
       label: 'Active Investors',
-      value: project.investors.toString(),
+      value: (project.investors || 0).toString(),
       icon: Users,
       color: 'purple',
     },
     {
       label: 'Production Rate',
       value: '15,340 BBL/mo.',
-      change: '+15.2%',
-      trend: 'up',
       icon: Droplets,
       color: 'yellow',
     },
   ];
 
-  const productionData = [
-    { month: 'Jan', production: 7200, revenue: 980000 },
-    { month: 'Feb', production: 7500, revenue: 1020000 },
-    { month: 'Mar', production: 7800, revenue: 1080000 },
-    { month: 'Apr', production: 8100, revenue: 1140000 },
-    { month: 'May', production: 8300, revenue: 1180000 },
-    { month: 'Jun', production: 8500, revenue: 1200000 },
-  ];
+  // Mock data removed - using real data from API calls
 
-  const investorDistribution = [
-    { name: 'Institutional', value: 45, color: '#3B82F6' },
-    { name: 'Private', value: 35, color: '#10B981' },
-    { name: 'Corporate', value: 20, color: '#6366F1' },
-  ];
-
-  const wellPerformance = [
-    { name: 'Well 1', performance: 92 },
-    { name: 'Well 2', performance: 88 },
-    { name: 'Well 3', performance: 95 },
-    { name: 'Well 4', performance: 85 },
-    { name: 'Well 5', performance: 90 },
-    { name: 'Well 6', performance: 87 },
-    { name: 'Well 7', performance: 93 },
-    { name: 'Well 8', performance: 89 },
-    { name: 'Well 9', performance: 91 },
-    { name: 'Well 10', performance: 86 },
-    { name: 'Well 11', performance: 88 },
-    { name: 'Well 12', performance: 94 },
-  ];
-
-  const investorGroups = [
-    { id: '1', name: 'Early Investors', color: 'blue' },
-    { id: '2', name: 'Institutional', color: 'purple' },
-    { id: '3', name: 'Strategic Partners', color: 'green' }
-  ];
-
-  const investors = [
-    {
-      id: '1',
-      name: 'Sarah Johnson',
-      type: 'Individual',
-      group: 'Early Investors',
-      units: 4,
-      percentage: 8,
-      investmentDate: '2023-06-15',
-      totalInvested: '$400,000',
-      monthlyIncome: '$24,000',
-      status: 'Active',
-      lastDistribution: '2024-03-01',
-      email: 'sarah.j@example.com',
-      phone: '+1 (555) 123-4567'
-    },
-    {
-      id: '2',
-      name: 'Blackrock Energy Fund',
-      type: 'Institutional',
-      group: 'Institutional',
-      units: 10,
-      percentage: 20,
-      investmentDate: '2023-06-15',
-      totalInvested: '$1,000,000',
-      monthlyIncome: '$60,000',
-      status: 'Active',
-      lastDistribution: '2024-03-01',
-      email: 'investments@blackrock.com',
-      phone: '+1 (555) 234-5678'
-    },
-    {
-      id: '3',
-      name: 'Michael Chen',
-      type: 'Individual',
-      group: 'Early Investors',
-      units: 2,
-      percentage: 4,
-      investmentDate: '2023-07-01',
-      totalInvested: '$200,000',
-      monthlyIncome: '$12,000',
-      status: 'Active',
-      lastDistribution: '2024-03-01',
-      email: 'm.chen@example.com',
-      phone: '+1 (555) 345-6789'
-    },
-    {
-      id: '4',
-      name: 'Energy Capital Partners',
-      type: 'Corporate',
-      group: 'Strategic Partners',
-      units: 8,
-      percentage: 16,
-      investmentDate: '2023-06-15',
-      totalInvested: '$800,000',
-      monthlyIncome: '$48,000',
-      status: 'Active',
-      lastDistribution: '2024-03-01',
-      email: 'investments@ecp.com',
-      phone: '+1 (555) 456-7890'
-    },
-    {
-      id: '5',
-      name: 'Emma Davis',
-      type: 'Individual',
-      group: 'Early Investors',
-      units: 1,
-      percentage: 2,
-      investmentDate: '2023-08-15',
-      totalInvested: '$100,000',
-      monthlyIncome: '$6,000',
-      status: 'Active',
-      lastDistribution: '2024-03-01',
-      email: 'emma.d@example.com',
-      phone: '+1 (555) 567-8901'
-    }
-  ];
-
-  const reports = {
-    monthly: [
-      {
-        id: '1',
-        name: 'June 2024 Production Report',
-        type: 'Production',
-        date: '2024-06-01',
-        size: '2.4 MB',
-        status: 'New',
-      },
-      {
-        id: '2',
-        name: 'June 2024 Financial Statement',
-        type: 'Financial',
-        date: '2024-06-01',
-        size: '3.1 MB',
-        status: 'New',
-      },
-      {
-        id: '3',
-        name: 'May 2024 Production Report',
-        type: 'Production',
-        date: '2024-05-01',
-        size: '2.3 MB',
-        status: 'Available',
-      },
-      {
-        id: '4',
-        name: 'May 2024 Financial Statement',
-        type: 'Financial',
-        date: '2024-05-01',
-        size: '2.9 MB',
-        status: 'Available',
-      },
-    ],
-    initial: [
-      {
-        id: '5',
-        name: 'Initial Offering Memorandum',
-        type: 'Legal',
-        date: '2023-06-01',
-        size: '4.8 MB',
-        status: 'Available',
-      },
-      {
-        id: '6',
-        name: 'Investment Structure Overview',
-        type: 'Legal',
-        date: '2023-06-01',
-        size: '2.1 MB',
-        status: 'Available',
-      },
-      {
-        id: '7',
-        name: 'Initial Investor Allocation Report',
-        type: 'Financial',
-        date: '2023-06-15',
-        size: '1.8 MB',
-        status: 'Available',
-      },
-      {
-        id: '8',
-        name: 'Project Timeline & Milestones',
-        type: 'Planning',
-        date: '2023-06-01',
-        size: '1.5 MB',
-        status: 'Available',
-      },
-    ],
-    compliance: [
-      {
-        id: '9',
-        name: 'Environmental Impact Assessment',
-        type: 'Compliance',
-        date: '2023-05-15',
-        size: '5.2 MB',
-        status: 'Available',
-      },
-      {
-        id: '10',
-        name: 'Regulatory Compliance Report Q2 2024',
-        type: 'Compliance',
-        date: '2024-04-15',
-        size: '3.4 MB',
-        status: 'Available',
-      },
-      {
-        id: '11',
-        name: 'Safety Audit Report Q2 2024',
-        type: 'Compliance',
-        date: '2024-04-20',
-        size: '2.8 MB',
-        status: 'Available',
-      }
-    ]
+  // Reports mock data removed - would need real API integration
+  const reports: {
+    monthly: never[];
+    initial: never[];
+    compliance: never[];
+  } = {
+    monthly: [],
+    initial: [],
+    compliance: []
   };
 
   return (
@@ -313,7 +294,12 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
               <ArrowLeft className="h-6 w-6" />
             </button>
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold text-white">{project.name}</h1>
+              <h1 className="text-2xl font-bold text-white">
+                {project.name} ({(() => {
+                  const [year, month] = selectedMonth.split('-');
+                  return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                })()})
+              </h1>
               <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-gray-400">
                 <span className="flex items-center">
                   <MapPin className="h-4 w-4 mr-1" />
@@ -339,21 +325,7 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
               className="flex items-center px-4 py-2 bg-green-500/10 text-green-400 rounded-xl border border-green-500/20 hover:bg-green-500/20 transition-colors"
             >
               <Calculator className="h-5 w-5 mr-2" />
-              Calculate Payout
-            </button>
-            <button
-              onClick={() => {/* Handle edit */}}
-              className="flex items-center px-4 py-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 hover:bg-blue-500/20 transition-colors"
-            >
-              <Edit className="h-5 w-5 mr-2" />
-              Edit Project
-            </button>
-            <button
-              onClick={() => setShowCompleteModal(true)}
-              className="flex items-center px-4 py-2 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
-            >
-              <CheckCircle className="h-5 w-5 mr-2" />
-              Complete Project
+              Calculate a new monthly Payout
             </button>
           </div>
         </div>
@@ -369,14 +341,50 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
                 <div className={`p-3 rounded-xl bg-${stat.color}-500/10`}>
                   <stat.icon className={`h-6 w-6 text-${stat.color}-400`} />
                 </div>
-                {stat.change && (
-                  <span className="text-sm font-medium text-green-400">{stat.change}</span>
-                )}
               </div>
               <p className="text-gray-400 text-sm font-medium">{stat.label}</p>
               <p className="text-2xl font-semibold text-white mt-1">{stat.value}</p>
             </div>
           ))}
+        </div>
+
+        {/* Financial Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+          <div className="bg-card-gradient rounded-2xl p-6 hover-neon-glow border border-green-500/20">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-400">
+                  {(() => {
+                    const [year, month] = selectedMonth.split('-');
+                    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                  })()} Revenue
+                </p>
+                <p className="text-2xl font-semibold text-white mt-2">
+                  {monthlyRevenue !== null 
+                    ? `$${monthlyRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : 'N/A'}
+                </p>
+              </div>
+              <TrendingUp className="h-8 w-8 text-green-400 opacity-50" />
+            </div>
+          </div>
+          
+          <div className="bg-card-gradient rounded-2xl p-6 hover-neon-glow border border-blue-500/20">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-400">
+                  Total Payout Amount for {(() => {
+                    const [year, month] = selectedMonth.split('-');
+                    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                  })()}
+                </p>
+                <p className="text-2xl font-semibold text-white mt-2">
+                  ${totalPayoutAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <DollarSign className="h-8 w-8 text-blue-400 opacity-50" />
+            </div>
+          </div>
         </div>
 
         {/* Charts Grid */}
@@ -394,59 +402,12 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
                 <option value="1y">Last Year</option>
               </select>
             </div>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={productionData}>
-                  <defs>
-                    <linearGradient id="colorProduction" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.1}/>
-                      <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10B981" stopOpacity={0.1}/>
-                      <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="month" stroke="var(--text-muted)" />
-                  <YAxis 
-                    yAxisId="left"
-                    stroke="var(--text-muted)"
-                    tickFormatter={(value) => `${value} BBL`}
-                  />
-                  <YAxis 
-                    yAxisId="right"
-                    orientation="right"
-                    stroke="var(--text-muted)"
-                    tickFormatter={(value) => `$${value/1000}k`}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--card-background)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '0.75rem',
-                    }}
-                  />
-                  <Legend />
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="production"
-                    stroke="#3B82F6"
-                    fillOpacity={1}
-                    fill="url(#colorProduction)"
-                    name="Production (BBL)"
-                  />
-                  <Area
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="revenue"
-                    stroke="#10B981"
-                    fillOpacity={1}
-                    fill="url(#colorRevenue)"
-                    name="Revenue ($)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="h-[300px] flex items-center justify-center">
+              <div className="text-center text-gray-400">
+                <Droplets className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>Production data not available</p>
+                <p className="text-sm">Real-time data will be displayed here</p>
+              </div>
             </div>
           </div>
 
@@ -454,30 +415,44 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
           <div className="bg-card-gradient rounded-2xl p-6 hover-neon-glow">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-white">Well Performance</h2>
-              <select
-                value={selectedMetric}
-                onChange={(e) => setSelectedMetric(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-xl px-2 sm:px-3 py-1.5 text-xs sm:text-sm text-gray-400"
-              >
-                <option value="production">Production Rate</option>
-                <option value="efficiency">Efficiency</option>
-              </select>
+              <span className="text-sm text-gray-400">Revenue by Month</span>
             </div>
             <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={wellPerformance}>
-                  <XAxis dataKey="name" stroke="var(--text-muted)" />
-                  <YAxis stroke="var(--text-muted)" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--card-background)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '0.75rem',
-                    }}
-                  />
-                  <Bar dataKey="performance" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {isLoadingRevenueSeries ? (
+                <div className="h-full flex items-center justify-center text-gray-400">Loading revenue...</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={revenueSeries}>
+                    <defs>
+                      <linearGradient id="wellRevenue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10B981" stopOpacity={0.2}/>
+                        <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="label" stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)' }} tickMargin={8} />
+                    <YAxis
+                      stroke="var(--text-muted)"
+                      width={90}
+                      allowDecimals={false}
+                      tick={{ fill: 'var(--text-muted)' }}
+                      tickFormatter={(v) => `$${Number(v).toLocaleString('en-US')}`}
+                    />
+                    <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--card-background)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '0.75rem',
+                      }}
+                      labelStyle={{ color: 'var(--text-primary)' }}
+                      itemStyle={{ color: 'var(--text-primary)' }}
+                      formatter={(value: any) => [`$${Number(value).toLocaleString()}`, 'Revenue']}
+                      labelFormatter={(label: any) => label}
+                    />
+                    <Area type="monotone" dataKey="revenue" stroke="#10B981" fillOpacity={1} fill="url(#wellRevenue)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
         </div>
@@ -489,19 +464,29 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
               <Users className="h-6 w-6 text-blue-400" />
               <div>
                 <h2 className="text-xl font-semibold text-white">Project Investors</h2>
-                <p className="text-sm text-gray-400 mt-1">By Investment Groups</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  {projectInvestors.length} total investors for {(() => {
+                    const [year, month] = selectedMonth.split('-');
+                    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                  })()}
+                </p>
               </div>
             </div>
             <div className="flex items-center space-x-3">
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-gray-400"
+                title="Select month to view investor payouts"
+              />
               <select
                 value={selectedGroup}
                 onChange={(e) => setSelectedGroup(e.target.value)}
                 className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-gray-400"
               >
                 <option value="all">All Groups</option>
-                {investorGroups.map(group => (
-                  <option key={group.id} value={group.name}>{group.name}</option>
-                ))}
+                {/* Groups will be populated from real data */}
               </select>
               <div className="flex rounded-xl overflow-hidden border border-[var(--border-color)]">
                 <button
@@ -529,146 +514,164 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
           </div>
 
           {selectedInvestorView === 'list' ? (
+            <div>
+              {/* Pagination Calculations */}
+              {(() => {
+                const totalInvestors = projectInvestors.length;
+                const totalPages = Math.ceil(totalInvestors / investorsPerPage);
+                const startIndex = (currentInvestorPage - 1) * investorsPerPage;
+                const endIndex = Math.min(startIndex + investorsPerPage, totalInvestors);
+                const paginatedInvestors = projectInvestors.slice(startIndex, endIndex);
+
+                return (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-white/10">
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investor</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Type</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Group</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Units</th>
+                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Email</th>
+                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Percentage</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investment</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Monthly Income</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investment Date</th>
+                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Payout Amount</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {investors
-                    .filter(investor => selectedGroup === 'all' || investor.group === selectedGroup)
-                    .map((investor) => (
-                    <tr key={investor.id} className="border-b border-white/10 hover:bg-white/5">
+                        {isLoadingInvestors ? (
+                          <tr>
+                            <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                              Loading investors...
+                            </td>
+                          </tr>
+                        ) : paginatedInvestors.length > 0 ? (
+                          paginatedInvestors.map((investor, index) => (
+                      <tr key={investor.investor_id || index} className="border-b border-white/10 hover:bg-white/5">
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-3">
                           <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
                             <span className="text-blue-400 font-semibold text-sm">
-                              {investor.name.split(' ').map(n => n[0]).join('')}
+                                {investor.investor_name.split(' ').map(n => n[0]).join('')}
                             </span>
                           </div>
                           <div>
-                            <div className="font-medium text-white">{investor.name}</div>
-                            <div className="text-sm text-gray-400">{investor.email}</div>
+                              <div className="font-medium text-white">{investor.investor_name}</div>
                           </div>
                         </div>
                       </td>
+                        <td className="px-6 py-4 text-gray-300">{investor.investor_email}</td>
                       <td className="px-6 py-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          investor.type === 'Individual'
-                            ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                            : investor.type === 'Institutional'
-                            ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                            : 'bg-green-500/10 text-green-400 border border-green-500/20'
-                        }`}>
-                          {investor.type}
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                            {(investor.percentage_owned || 0).toFixed(2)}%
                         </span>
                       </td>
+                        <td className="px-6 py-4 text-white">
+                          {investor.investment_amount ? `$${investor.investment_amount.toLocaleString()}` : 'N/A'}
+                      </td>
                       <td className="px-6 py-4">
-                        {investor.group && (
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            investor.group === 'Early Investors'
-                              ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                              : investor.group === 'Institutional'
-                              ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                              : 'bg-green-500/10 text-green-400 border border-green-500/20'
-                          }`}>
-                            {investor.group}
+                          <span className="font-medium text-green-400">
+                            ${(investor.payout_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
-                        )}
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="text-white">{investor.units} Units</div>
-                        <div className="text-sm text-gray-400">{investor.percentage}%</div>
-                      </td>
-                      <td className="px-6 py-4 text-white">{investor.totalInvested}</td>
-                      <td className="px-6 py-4 text-green-400">{investor.monthlyIncome}</td>
-                      <td className="px-6 py-4 text-gray-300">
-                        {new Date(investor.investmentDate).toLocaleDateString()}
+                      </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                              No investors found for this project
                       </td>
                     </tr>
-                  ))}
+                        )}
                 </tbody>
               </table>
+                    
+                    {/* Pagination Controls */}
+                    {totalInvestors > investorsPerPage && (
+                      <div className="flex items-center justify-between px-6 py-4 border-t border-white/10">
+                        <div className="text-sm text-gray-400">
+                          Showing {totalInvestors === 0 ? 0 : startIndex + 1}-{endIndex} of {totalInvestors} investors
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            className={`px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-sm ${
+                              currentInvestorPage === 1 
+                                ? 'opacity-50 cursor-not-allowed' 
+                                : 'hover:bg-white/5 text-white'
+                            }`}
+                            onClick={() => setCurrentInvestorPage(prev => Math.max(1, prev - 1))}
+                            disabled={currentInvestorPage === 1}
+                          >
+                            Previous
+                          </button>
+                          <span className="text-sm text-gray-400">
+                            Page {currentInvestorPage} of {totalPages}
+                          </span>
+                          <button
+                            className={`px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-sm ${
+                              currentInvestorPage === totalPages 
+                                ? 'opacity-50 cursor-not-allowed' 
+                                : 'hover:bg-white/5 text-white'
+                            }`}
+                            onClick={() => setCurrentInvestorPage(prev => Math.min(totalPages, prev + 1))}
+                            disabled={currentInvestorPage === totalPages}
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {investors
-                .filter(investor => selectedGroup === 'all' || investor.group === selectedGroup)
-                .map((investor) => (
-                <div
-                  key={investor.id}
+              {isLoadingInvestors ? (
+                <div className="col-span-full text-center text-gray-400 py-8">
+                  Loading investors...
+                </div>
+              ) : projectInvestors.length > 0 ? (
+                projectInvestors.map((investor, index) => (
+                  <div
+                    key={investor.investor_id || index}
                   className="bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-colors"
                 >
                   <div className="flex items-center space-x-3 mb-4">
                     <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
                       <span className="text-lg font-semibold text-blue-400">
-                        {investor.name.split(' ').map(n => n[0]).join('')}
-                      </span>
-                    </div>
-                    <div>
-                      <h3 className="font-medium text-white">{investor.name}</h3>
-                      <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                        investor.type === 'Individual'
-                          ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                          : investor.type === 'Institutional'
-                          ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                          : 'bg-green-500/10 text-green-400 border border-green-500/20'
-                      }`}>
-                        {investor.type}
-                      </span>
-                      {investor.group && (
-                        <span className={`inline-block mt-1 ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${
-                          investor.group === 'Early Investors'
-                            ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                            : investor.group === 'Institutional'
-                            ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                            : 'bg-green-500/10 text-green-400 border border-green-500/20'
-                        }`}>
-                          {investor.group}
+                          {investor.investor_name.split(' ').map(n => n[0]).join('')}
                         </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm text-gray-400">Units</p>
-                        <p className="text-white">{investor.units} ({investor.percentage}%)</p>
                       </div>
                       <div>
-                        <p className="text-sm text-gray-400">Investment Date</p>
-                        <p className="text-white">
-                          {new Date(investor.investmentDate).toLocaleDateString()}
+                        <h3 className="font-medium text-white">{investor.investor_name}</h3>
+                        <p className="text-sm text-gray-400">{investor.investor_email}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                          <p className="text-sm text-gray-400">Percentage</p>
+                          <p className="text-white font-medium">{(investor.percentage_owned || 0).toFixed(2)}%</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-400">Investment Amount</p>
+                          <p className="text-white">
+                            {investor.investment_amount ? `$${investor.investment_amount.toLocaleString()}` : 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="pt-3 border-t border-white/10">
+                        <p className="text-sm text-gray-400">Payout Amount</p>
+                        <p className="text-green-400 font-medium">
+                          ${(investor.payout_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm text-gray-400">Total Invested</p>
-                        <p className="text-white">{investor.totalInvested}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-400">Monthly Income</p>
-                        <p className="text-green-400">{investor.monthlyIncome}</p>
-                      </div>
-                    </div>
-                    <div className="pt-3 border-t border-white/10">
-                      <p className="text-sm text-gray-400">Last Distribution</p>
-                      <p className="text-white">
-                        {new Date(investor.lastDistribution).toLocaleDateString()}
-                      </p>
-                    </div>
                   </div>
+                ))
+              ) : (
+                <div className="col-span-full text-center text-gray-400 py-8">
+                  No investors found for this project
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
@@ -711,7 +714,7 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
                      'Compliance Reports'}
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {categoryReports.map((report) => (
+                    {categoryReports.length > 0 ? categoryReports.map((report) => (
                       <div
                         key={report.id}
                         className="bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-colors"
@@ -748,7 +751,13 @@ export function ProjectView({ projectId, onBack }: ProjectViewProps) {
                           Download
                         </button>
                       </div>
-                    ))}
+                    )) : (
+                      <div className="col-span-full text-center text-gray-400 py-8">
+                        <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                        <p>No reports available</p>
+                        <p className="text-sm">Reports will be displayed here when available</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Image, FileText, Send, Paperclip, X, Download, Pencil, Trash2 } from 'lucide-react';
+import { Image, FileText, Send, Paperclip, X, Download, Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
 interface Post {
@@ -21,7 +21,7 @@ interface Post {
 }
 
 interface ForumProps {
-  userProfile: { id: string; role: string; full_name: string };
+  userProfile: { id: string; role: string; full_name?: string; name?: string };
 }
 
 export function Forum({ userProfile }: ForumProps) {
@@ -31,29 +31,82 @@ export function Forum({ userProfile }: ForumProps) {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
+  const [alertInfo, setAlertInfo] = useState<{ title: string; message: string; type: 'error' | 'success' | 'info' } | null>(null);
+  const [confirmInfo, setConfirmInfo] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   const isAdmin = userProfile?.role === 'admin';
 
   useEffect(() => {
     const fetchPosts = async () => {
-      const { data, error } = await supabase
-        .from('forum_posts')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) {
-        console.error('Failed to fetch posts:', error.message);
-        return;
+      try {
+        const { data: postsData, error: postsError } = await supabase
+          .from('forum_posts')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (postsError) {
+          console.error('Failed to fetch posts:', postsError.message);
+          return;
+        }
+
+        // Get unique user IDs
+        const userIds = [...new Set((postsData || []).map((post: any) => post.user_id).filter(Boolean))];
+        
+        // Fetch user names (only if there are posts with user_ids)
+        let usersData: any[] = [];
+        if (userIds.length > 0) {
+          const { data } = await supabase
+            .from('users')
+            .select('id, email')
+            .in('id', userIds);
+          usersData = data || [];
+        }
+
+        // Create a map of user_id to user_name
+        const userMap = new Map();
+        (usersData || []).forEach((user: any) => {
+          userMap.set(user.id, user.email || 'Unknown User');
+        });
+
+        // Fetch attachments for all posts
+        const postIds = (postsData || []).map((post: any) => post.id).filter(Boolean);
+        let attachmentsData: any[] = [];
+        if (postIds.length > 0) {
+          const { data } = await supabase
+            .from('forum_attachments')
+            .select('*')
+            .in('post_id', postIds);
+          attachmentsData = data || [];
+        }
+
+        // Create a map of post_id to attachments
+        const attachmentsMap = new Map();
+        (attachmentsData || []).forEach((att: any) => {
+          if (!attachmentsMap.has(att.post_id)) {
+            attachmentsMap.set(att.post_id, []);
+          }
+          attachmentsMap.get(att.post_id).push({
+            type: att.file_type?.startsWith('image/') ? 'image' : 'document',
+            url: att.file_url,
+            name: att.file_name,
+          });
+        });
+
+        // Map posts with user names and attachments
+        const mappedPosts: Post[] = (postsData || []).map((row: any) => ({
+          id: row.id?.toString() || '',
+          author: userMap.get(row.user_id) || 'Unknown User',
+          content: row.body,
+          timestamp: row.created_at,
+          likes: 0,
+          liked: false,
+          likedBy: [],
+          attachments: attachmentsMap.get(row.id) || [],
+        }));
+        
+        setPosts(mappedPosts);
+      } catch (error) {
+        console.error('Error fetching posts:', error);
       }
-      const mappedPosts: Post[] = (data || []).map((row: any) => ({
-        id: row.id?.toString() || '',
-        author: 'Brett Kemp',
-        content: row.body,
-        timestamp: row.created_at,
-        likes: 0,
-        liked: false,
-        likedBy: [],
-        attachments: [],
-      }));
-      setPosts(mappedPosts);
     };
     fetchPosts();
   }, []);
@@ -72,7 +125,7 @@ export function Forum({ userProfile }: ForumProps) {
       .update({ body: editingContent })
       .eq('id', post.id);
     if (error) {
-      alert('Failed to update post: ' + error.message);
+      setAlertInfo({ title: 'Update Failed', message: error.message, type: 'error' });
       return;
     }
     setPosts(posts.map(p => p.id === post.id ? { ...p, content: editingContent } : p));
@@ -80,90 +133,178 @@ export function Forum({ userProfile }: ForumProps) {
     setEditingContent('');
   };
 
+  const handleDeleteClick = (post: Post) => {
+    setConfirmInfo({
+      title: 'Delete Post',
+      message: 'Are you sure you want to delete this post and its attachments? This action cannot be undone.',
+      onConfirm: () => {
+        setConfirmInfo(null);
+        handleDelete(post);
+      },
+    });
+  };
+
   const handleDelete = async (post: Post) => {
-    if (!window.confirm('Are you sure you want to delete this post?')) return;
-    const { error } = await supabase
-      .from('forum_posts')
-      .delete()
-      .eq('id', post.id);
-    if (error) {
-      alert('Failed to delete post: ' + error.message);
-      return;
+    try {
+      // 1) Fetch attachments for the post
+      const { data: attachmentsData, error: attachmentsError } = await supabase
+        .from('forum_attachments')
+        .select('id, file_url')
+        .eq('post_id', post.id);
+
+      if (attachmentsError) {
+        console.error('Failed to fetch attachments for deletion:', attachmentsError.message);
+      }
+
+      // 2) Remove files from storage (best-effort)
+      if (attachmentsData && attachmentsData.length > 0) {
+        const pathsToRemove: string[] = [];
+        attachmentsData.forEach((att: any) => {
+          try {
+            const marker = '/forum-attachments/';
+            const idx = (att.file_url || '').indexOf(marker);
+            if (idx !== -1) {
+              const storagePath = att.file_url.substring(idx + marker.length);
+              if (storagePath) pathsToRemove.push(storagePath);
+            }
+          } catch (e) {
+            console.error('Error computing storage path for', att);
+          }
+        });
+        if (pathsToRemove.length > 0) {
+          const { error: removeError } = await supabase.storage
+            .from('forum-attachments')
+            .remove(pathsToRemove);
+          if (removeError) {
+            console.error('Failed to remove some storage files:', removeError.message);
+          }
+        }
+
+        // 3) Delete attachment rows
+        const { error: deleteAttachmentsError } = await supabase
+          .from('forum_attachments')
+          .delete()
+          .eq('post_id', post.id);
+        if (deleteAttachmentsError) {
+          console.error('Failed to delete attachment rows:', deleteAttachmentsError.message);
+        }
+      }
+
+      // 4) Delete the post itself
+      const { error: postDeleteError } = await supabase
+        .from('forum_posts')
+        .delete()
+        .eq('id', post.id);
+      if (postDeleteError) {
+        setAlertInfo({ title: 'Delete Failed', message: postDeleteError.message, type: 'error' });
+        return;
+      }
+
+      // 5) Update local state
+      setPosts(posts.filter(p => p.id !== post.id));
+    } catch (err: any) {
+      console.error('Error deleting post and attachments:', err);
+      setAlertInfo({ title: 'Delete Failed', message: 'Failed to delete post and its attachments.', type: 'error' });
     }
-    setPosts(posts.filter(p => p.id !== post.id));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPost.trim()) return;
+    if (!newPost.trim() && attachments.length === 0) return;
 
-    // 1. Insert post into Supabase with user_id
-    const { data: postData, error: postError } = await supabase
-      .from('forum_posts')
-      .insert([
-        {
-          user_id: userProfile.id,
-          title: newPost.substring(0, 40),
-          body: newPost,
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select();
-    if (postError) {
-      alert('Failed to post: ' + postError.message);
-      return;
-    }
-    const postId = postData?.[0]?.id;
+    try {
+      // 1. Insert post into Supabase with user_id
+      const { data: postData, error: postError } = await supabase
+        .from('forum_posts')
+        .insert([
+          {
+            user_id: userProfile.id,
+            title: newPost.trim().substring(0, 40) || 'Forum Post',
+            body: newPost.trim() || '(attachment only)',
+            created_at: new Date().toISOString(),
+          },
+        ])
+        .select();
+      
+      if (postError) {
+        console.error('Failed to post:', postError);
+        setAlertInfo({ title: 'Post Failed', message: postError.message, type: 'error' });
+        return;
+      }
+      
+      const postId = postData?.[0]?.id;
+      if (!postId) {
+        console.error('No post ID returned');
+        setAlertInfo({ title: 'Post Failed', message: 'Failed to create post', type: 'error' });
+        return;
+      }
 
-    // 2. Upload attachments to Supabase Storage and insert into forum_attachments
-    let uploadedAttachments: any[] = [];
-    for (const file of attachments) {
-      const storagePath = `${postId}/${file.name}`;
-      const { error: storageError } = await supabase.storage
-        .from('forum-attachments')
-        .upload(storagePath, file, { upsert: true });
-      if (!storageError) {
-        const publicUrl = supabase.storage
-          .from('forum-attachments')
-          .getPublicUrl(storagePath).data.publicUrl;
-        // Insert attachment record
-        const { data: attachmentData, error: attachmentError } = await supabase
-          .from('forum_attachments')
-          .insert([
-            {
-              post_id: postId,
-              file_url: publicUrl,
-              file_name: file.name,
-              file_type: file.type,
-              created_at: new Date().toISOString(),
-            },
-          ])
-          .select();
-        if (!attachmentError && attachmentData && attachmentData[0]) {
-          uploadedAttachments.push({
-            type: file.type.startsWith('image/') ? 'image' : 'document',
-            url: publicUrl,
-            name: file.name,
-          });
+      // 2. Upload attachments to Supabase Storage and insert into forum_attachments
+      let uploadedAttachments: any[] = [];
+      if (attachments.length > 0) {
+        for (const file of attachments) {
+          try {
+            const storagePath = `${postId}/${Date.now()}_${file.name}`;
+            const { error: storageError } = await supabase.storage
+              .from('forum-attachments')
+              .upload(storagePath, file, { upsert: true });
+            
+            if (!storageError) {
+              const { data: urlData } = supabase.storage
+                .from('forum-attachments')
+                .getPublicUrl(storagePath);
+              
+              const publicUrl = urlData.publicUrl;
+              
+              // Insert attachment record
+              const { data: attachmentData, error: attachmentError } = await supabase
+                .from('forum_attachments')
+                .insert([
+                  {
+                    post_id: postId,
+                    file_url: publicUrl,
+                    file_name: file.name,
+                    file_type: file.type,
+                    created_at: new Date().toISOString(),
+                  },
+                ])
+                .select();
+              
+              if (!attachmentError && attachmentData && attachmentData[0]) {
+                uploadedAttachments.push({
+                  type: file.type.startsWith('image/') ? 'image' : 'document',
+                  url: publicUrl,
+                  name: file.name,
+                });
+              }
+            } else {
+              console.error('Storage error:', storageError);
+            }
+          } catch (fileError) {
+            console.error('Error uploading file:', fileError);
+          }
         }
       }
+
+      // 3. Add new post to local state
+      const newPostObj: Post = {
+        id: postId.toString(),
+        author: userProfile.full_name || userProfile.name || 'You',
+        content: newPost.trim() || '(attachment only)',
+        timestamp: new Date().toISOString(),
+        likes: 0,
+        liked: false,
+        likedBy: [],
+        attachments: uploadedAttachments,
+      };
+
+      setPosts([newPostObj, ...posts]);
+      setNewPost('');
+      setAttachments([]);
+    } catch (error: any) {
+      console.error('Error submitting post:', error);
+      setAlertInfo({ title: 'Post Failed', message: error.message || 'Unknown error', type: 'error' });
     }
-
-    // 3. Add new post to local state
-    const newPostObj: Post = {
-      id: postId?.toString() || Date.now().toString(),
-      author: userProfile.full_name,
-      content: newPost,
-      timestamp: new Date().toISOString(),
-      likes: 0,
-      liked: false,
-      likedBy: [],
-      attachments: uploadedAttachments,
-    };
-
-    setPosts([newPostObj, ...posts]);
-    setNewPost('');
-    setAttachments([]);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -177,6 +318,7 @@ export function Forum({ userProfile }: ForumProps) {
   };
 
   const handleLike = (postId: string) => {
+    const userName = userProfile?.full_name || userProfile?.name || 'You';
     setPosts(posts.map(post => {
       if (post.id === postId) {
         return {
@@ -184,8 +326,8 @@ export function Forum({ userProfile }: ForumProps) {
           likes: post.liked ? post.likes - 1 : post.likes + 1,
           liked: !post.liked,
           likedBy: post.liked
-            ? post.likedBy.filter(like => like.name !== 'Brett Kemp')
-            : [...post.likedBy, { name: 'Brett Kemp', timestamp: new Date().toISOString() }]
+            ? post.likedBy.filter(like => like.name !== userName)
+            : [...post.likedBy, { name: userName, timestamp: new Date().toISOString() }]
         };
       }
       return post;
@@ -255,7 +397,7 @@ export function Forum({ userProfile }: ForumProps) {
             </div>
             <button
               type="submit"
-              disabled={!newPost.trim()}
+              disabled={!newPost.trim() && attachments.length === 0}
               className="flex items-center px-6 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="h-5 w-5 mr-2" />
@@ -310,7 +452,7 @@ export function Forum({ userProfile }: ForumProps) {
                             <Pencil className="h-5 w-5" />
                           </button>
                           <button
-                            onClick={() => handleDelete(post)}
+                            onClick={() => handleDeleteClick(post)}
                             className="p-2 rounded-xl border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors"
                             title="Delete Post"
                           >
@@ -370,6 +512,70 @@ export function Forum({ userProfile }: ForumProps) {
         </div>
       </div>
       
+      {/* Alert Modal */}
+      {alertInfo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-card-gradient rounded-2xl p-6 max-w-md w-full border border-white/10">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">
+                {alertInfo.title}
+              </h3>
+              <button
+                onClick={() => setAlertInfo(null)}
+                className="p-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                aria-label="Close alert"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-[var(--text-primary)] mb-6">{alertInfo.message}</p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setAlertInfo(null)}
+                className="px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Modal */}
+      {confirmInfo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-card-gradient rounded-2xl p-6 max-w-md w-full border border-white/10">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">
+                {confirmInfo.title}
+              </h3>
+              <button
+                onClick={() => setConfirmInfo(null)}
+                className="p-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                aria-label="Close confirm"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-[var(--text-primary)] mb-6">{confirmInfo.message}</p>
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setConfirmInfo(null)}
+                className="px-4 py-2 bg-white/5 text-[var(--text-primary)] rounded-xl hover:bg-white/10 transition-colors border border-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => confirmInfo.onConfirm()}
+                className="px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Likes Modal */}
       {selectedPost && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">

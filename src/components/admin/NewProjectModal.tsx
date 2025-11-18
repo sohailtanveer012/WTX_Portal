@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { MapPin, Calendar, DollarSign, Users, X, FileText, Drill, Percent, Plus, Trash2, Search, CheckCircle, Lock as LockIcon, Unlock as UnlockIcon } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { MapPin, Calendar, DollarSign, Users, X, FileText, Drill, Percent, Plus, Trash2, Search, CheckCircle, Lock as LockIcon, Unlock as UnlockIcon, Loader2 } from 'lucide-react';
+import { fetchInvestorsWithTotalProjectsAndInvestment } from '../../api/services';
+import { supabase } from '../../supabaseClient';
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -8,11 +10,14 @@ interface NewProjectModalProps {
 }
 
 interface Investor {
+  investor_id: string | number;
   name: string;
   email: string;
   investmentType: 'units' | 'amount';
   investment: string;
   units: number;
+  percentage_owned: number;
+  invested_amount: number;
   discount: string;
   discountMemo: string;
 }
@@ -39,14 +44,36 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
   const [selectAll, setSelectAll] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
 
-  // Mock available investors - in a real app, this would come from the database
-  const availableInvestors = [
-    { id: '1', name: 'Sarah Johnson', email: 'sarah.j@example.com' },
-    { id: '2', name: 'Michael Chen', email: 'm.chen@example.com' },
-    { id: '3', name: 'Emma Davis', email: 'emma.d@example.com' },
-    { id: '4', name: 'James Wilson', email: 'j.wilson@example.com' },
-    { id: '5', name: 'Lisa Anderson', email: 'lisa.a@example.com' },
-  ];
+  const [availableInvestors, setAvailableInvestors] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [loadingInvestors, setLoadingInvestors] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let mounted = true;
+    (async () => {
+      setLoadingInvestors(true);
+      try {
+        const rows = await fetchInvestorsWithTotalProjectsAndInvestment();
+        if (!mounted) return;
+        // Map to id/name/email. RPC may not return email; default to empty string.
+        const mapped = (rows || []).map((r: any, idx: number) => ({
+          id: String(r.investor_id ?? idx),
+          name: r.investor_name || 'Investor',
+          email: r.investor_email || ''
+        }));
+        // De-duplicate by id
+        const unique = Array.from(new Map(mapped.map(m => [m.id, m])).values());
+        setAvailableInvestors(unique);
+      } catch (e) {
+        console.error('Failed to load investors list', e);
+        if (!mounted) return;
+        setAvailableInvestors([]);
+      } finally {
+        if (mounted) setLoadingInvestors(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [isOpen]);
 
   const filteredInvestors = availableInvestors.filter(investor =>
     investor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -66,21 +93,46 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
     }
   };
 
+  const calculateInvestedAmount = (units: number, type: 'units' | 'amount', investment: string) => {
+    const totalInvestment = parseFloat(projectData.targetInvestment.replace(/[^0-9.-]+/g, ''));
+    const totalUnits = parseFloat(projectData.totalUnits);
+    
+    if (isNaN(totalInvestment) || isNaN(totalUnits) || totalUnits === 0) return 0;
+    
+    if (type === 'amount') {
+      return parseFloat(investment) || 0;
+    } else {
+      // Calculate from units
+      return (units / totalUnits) * totalInvestment;
+    }
+  };
+
+  const calculatePercentageOwned = (units: number) => {
+    const totalUnits = parseFloat(projectData.totalUnits);
+    if (isNaN(totalUnits) || totalUnits === 0) return 0;
+    return (units / totalUnits) * 100;
+  };
+
   const handleInvestmentChange = (investorId: string, value: string, type: 'units' | 'amount') => {
     const investor = availableInvestors.find(inv => inv.id === investorId);
     if (!investor) return;
 
-    const existingIndex = projectData.investors.findIndex(inv => inv.name === investor.name);
+    const existingIndex = projectData.investors.findIndex(inv => inv.investor_id === investor.id);
     const units = calculateUnits(value, type);
+    const investedAmount = calculateInvestedAmount(units, type, value);
+    const percentageOwned = calculatePercentageOwned(units);
 
     if (existingIndex >= 0) {
       const updatedInvestors = [...projectData.investors];
       updatedInvestors[existingIndex] = {
+        investor_id: investor.id,
         name: investor.name,
         email: investor.email,
         investmentType: type,
         investment: value,
         units,
+        invested_amount: investedAmount,
+        percentage_owned: percentageOwned,
         discount: updatedInvestors[existingIndex].discount || '',
         discountMemo: updatedInvestors[existingIndex].discountMemo || '',
       };
@@ -91,11 +143,14 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
         investors: [
           ...projectData.investors,
           {
+            investor_id: investor.id,
             name: investor.name,
             email: investor.email,
             investmentType: type,
             investment: value,
             units,
+            invested_amount: investedAmount,
+            percentage_owned: percentageOwned,
             discount: '',
             discountMemo: '',
           },
@@ -116,9 +171,98 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
     setShowConfirmation(true);
   };
 
-  const handleConfirm = () => {
-    onSubmit(projectData);
-    onClose();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const handleConfirm = async () => {
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      // Prepare investors data for the RPC
+      // Filter out investors with 0% ownership and validate investor_id exists
+      const investorsWithOwnership = projectData.investors.filter(inv => 
+        inv.percentage_owned > 0 && inv.investor_id
+      );
+      
+      if (investorsWithOwnership.length === 0) {
+        setSubmitError('Please assign ownership percentage to at least one investor.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Format investors array - the RPC expects investor_id and percentage_owned
+      const investors = investorsWithOwnership.map(inv => {
+        // Convert investor_id to number if it's a string
+        let investorId: number;
+        if (typeof inv.investor_id === 'string') {
+          investorId = parseInt(inv.investor_id, 10);
+          if (isNaN(investorId)) {
+            throw new Error(`Invalid investor ID for ${inv.name}: ${inv.investor_id}`);
+          }
+        } else {
+          investorId = inv.investor_id as number;
+        }
+
+        return {
+          investor_id: investorId,
+          percentage_owned: inv.percentage_owned,
+        };
+      });
+
+      console.log('Calling add_project_with_investors with data:', {
+        investors,
+        location: projectData.location,
+        name: projectData.name,
+        start_date: projectData.drillDate,
+        target_raise: parseFloat(projectData.targetInvestment) || 0,
+        units_total: parseFloat(projectData.totalUnits) || 50,
+      });
+
+      // Call the RPC function
+      const { data, error } = await supabase.rpc('add_project_with_investors', {
+        investors: investors,
+        location: projectData.location,
+        name: projectData.name,
+        start_date: projectData.drillDate,
+        target_raise: parseFloat(projectData.targetInvestment) || 0,
+        units_total: parseFloat(projectData.totalUnits) || 50,
+      });
+
+      if (error) {
+        console.error('Error adding project:', error);
+        setSubmitError(error.message || 'Failed to create project. Please try again.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      console.log('Project created successfully:', data);
+      
+      // Reset form
+      setProjectData({
+        name: '',
+        location: '',
+        drillDate: '',
+        targetInvestment: '',
+        totalUnits: '50',
+        isUnitsLocked: true,
+        investors: [],
+      });
+      setShowConfirmation(false);
+      
+      // Call onSubmit with the RPC response or projectData
+      onSubmit(data || projectData);
+      
+      // Show success message
+      alert('Project created successfully!');
+      
+      // Close modal
+      onClose();
+    } catch (e) {
+      console.error('Failed to create project:', e);
+      setSubmitError(e instanceof Error ? e.message : 'An unexpected error occurred.');
+      setIsSubmitting(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -286,7 +430,7 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
             </div>
             
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[800px]">
+              <table className="w-full min-w-[1200px]">
                 <thead>
                   <tr className="border-b border-white/10">
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">
@@ -298,11 +442,14 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
                             setSelectAll(e.target.checked);
                             if (e.target.checked) {
                               const allInvestors = filteredInvestors.map(investor => ({
+                                investor_id: investor.id,
                                 name: investor.name,
                                 email: investor.email,
                                 investmentType: 'units' as const,
                                 investment: '',
                                 units: 0,
+                                invested_amount: 0,
+                                percentage_owned: 0,
                                 discount: '',
                                 discountMemo: '',
                               }));
@@ -320,11 +467,17 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investment Type</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investment</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Units</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Invested Amount</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Percentage Owned</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
-                  {filteredInvestors.map((investor) => {
-                    const existingInvestment = projectData.investors.find(inv => inv.name === investor.name);
+                  {loadingInvestors ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-6 text-center text-gray-400">Loading investors...</td>
+                    </tr>
+                  ) : filteredInvestors.map((investor) => {
+                    const existingInvestment = projectData.investors.find(inv => inv.investor_id === investor.id);
                     return (
                       <tr key={investor.id} className="border-b border-white/10">
                         <td className="px-6 py-4">
@@ -398,8 +551,55 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
                         </td>
                         <td className="px-6 py-4">
                           <span className="text-sm text-gray-300">
-                            {existingInvestment?.units || 0} Units ({((existingInvestment?.units || 0) / parseFloat(projectData.totalUnits) * 100).toFixed(2)}%)
+                            {existingInvestment?.units || 0} Units
                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-white font-medium">
+                            ${(existingInvestment?.invested_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center space-x-2">
+                            <div className="relative w-32">
+                              <Percent className="absolute left-3 top-2 h-4 w-4 text-gray-400" />
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                value={existingInvestment?.percentage_owned || 0}
+                                onChange={(e) => {
+                                  const newPercentage = parseFloat(e.target.value) || 0;
+                                  const totalInvestment = parseFloat(projectData.targetInvestment.replace(/[^0-9.-]+/g, ''));
+                                  const totalUnits = parseFloat(projectData.totalUnits);
+                                  
+                                  // Calculate units from percentage
+                                  const newUnits = (newPercentage / 100) * totalUnits;
+                                  // Calculate invested amount from percentage
+                                  const newInvestedAmount = (newPercentage / 100) * totalInvestment;
+                                  
+                                  const updatedInvestors = projectData.investors.map(inv =>
+                                    inv.investor_id === investor.id
+                                      ? {
+                                          ...inv,
+                                          percentage_owned: newPercentage,
+                                          units: newUnits,
+                                          invested_amount: newInvestedAmount,
+                                          investment: inv.investmentType === 'amount' 
+                                            ? newInvestedAmount.toString() 
+                                            : newUnits.toString(),
+                                        }
+                                      : inv
+                                  );
+                                  setProjectData({ ...projectData, investors: updatedInvestors });
+                                }}
+                                className="w-full pl-10 pr-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="0.00"
+                              />
+                            </div>
+                            <span className="text-sm text-gray-400">%</span>
+                          </div>
                           {existingInvestment && existingInvestment.units > 0 && (
                             <div className="mt-2">
                               <label className="flex items-center space-x-2 text-sm text-gray-400 hover:text-gray-300 cursor-pointer">
@@ -408,7 +608,7 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
                                   checked={!!(existingInvestment?.discount || existingInvestment?.discountMemo)}
                                   onChange={(e) => {
                                     const newGroups = projectData.investors.map(inv =>
-                                      inv.name === investor.name
+                                      inv.investor_id === investor.id
                                         ? { ...inv, discount: e.target.checked ? '0' : '', discountMemo: e.target.checked ? '' : '' }
                                         : inv
                                     );
@@ -432,7 +632,7 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
                                       value={existingInvestment.discount || ''}
                                       onChange={(e) => {
                                         const newGroups = projectData.investors.map(inv =>
-                                          inv.name === investor.name
+                                          inv.investor_id === investor.id
                                             ? { ...inv, discount: e.target.value }
                                             : inv
                                         );
@@ -447,7 +647,7 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
                                   value={existingInvestment.discountMemo || ''}
                                   onChange={(e) => {
                                     const newGroups = projectData.investors.map(inv =>
-                                      inv.name === investor.name
+                                      inv.investor_id === investor.id
                                         ? { ...inv, discountMemo: e.target.value }
                                         : inv
                                     );
@@ -635,10 +835,19 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
                   </div>
                 </div>
 
+                {submitError && (
+                  <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 mb-4">
+                    <p className="text-red-400 text-sm">{submitError}</p>
+                  </div>
+                )}
                 <div className="flex justify-end space-x-4 mt-6">
                   <button
-                    onClick={() => setShowConfirmation(false)}
-                    className="px-4 py-2 text-gray-400 hover:text-gray-300"
+                    onClick={() => {
+                      setShowConfirmation(false);
+                      setSubmitError(null);
+                    }}
+                    className="px-4 py-2 text-gray-400 hover:text-gray-300 transition-colors"
+                    disabled={isSubmitting}
                   >
                     Back to Edit
                   </button>
@@ -655,16 +864,26 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
                         investors: [],
                       });
                       setShowConfirmation(false);
+                      setSubmitError(null);
                     }}
-                    className="px-4 py-2 text-gray-400 hover:text-gray-300"
+                    className="px-4 py-2 text-gray-400 hover:text-gray-300 transition-colors"
+                    disabled={isSubmitting}
                   >
                     Clear & Start Over
                   </button>
                   <button
                     onClick={handleConfirm}
-                    className="px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600"
+                    disabled={isSubmitting}
+                    className="px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   >
-                    Confirm & Create Project
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      'Confirm & Create Project'
+                    )}
                   </button>
                 </div>
               </div>

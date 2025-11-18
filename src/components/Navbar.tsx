@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, X, Bell, Home, PieChart, FileText, Settings, Users, FolderOpen } from 'lucide-react';
+import { Menu, X, Home, PieChart, FileText, Settings, Users, FolderOpen } from 'lucide-react';
 
 interface NavbarProps {
   isMobileMenuOpen: boolean;
@@ -43,14 +43,6 @@ export function Navbar({
           >
             {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
-          <div className="ml-auto flex items-center space-x-4">
-            <div className="relative">
-              <button className="p-2 rounded-xl text-gray-400 hover:bg-white/5">
-                <Bell className="h-6 w-6" />
-                <span className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full"></span>
-              </button>
-            </div>
-          </div>
         </div>
       </header>
 

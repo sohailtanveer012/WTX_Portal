@@ -1,10 +1,35 @@
-import React, { useState, useEffect } from 'react';
-import { DollarSign, Droplets, Calculator, PieChart, Mail, Users, Bell, ChevronLeft, FileText, Calendar, Download, Edit, Trash2, CheckCircle2, Loader2, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { DollarSign, Droplets, Calculator, Mail, Users, ChevronLeft, Edit, CheckCircle2, Loader2, X } from 'lucide-react';
+import { supabase } from '../../supabaseClient';
 
 interface ProjectPayoutProps {
   projectId: string;
   onBack: () => void;
-  project: any;
+  project: {
+    id: string;
+    name: string;
+    location?: string;
+    status?: string;
+    investors?: number;
+    totalInvestment?: string;
+    monthlyRevenue?: string;
+    completionDate?: string;
+    description?: string;
+    startDate?: string;
+    operatingCosts?: string;
+    productionRate?: string;
+    recoveryRate?: string;
+    wellCount?: number;
+    hasInvestorGroups?: boolean;
+  };
+  investors: Array<{
+    investor_id?: number;
+    investor_name: string;
+    investor_email: string;
+    percentage_owned: number;
+    payout_amount?: number;
+    investment_amount?: number;
+  }>;
 }
 
 interface Investor {
@@ -23,67 +48,101 @@ interface InvestorDistribution {
   email: string;
   baseBarrels: number;
   totalBarrels: number;
+  share?: number; // Share percentage
 }
 
-export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps) {
+export function ProjectPayout({ projectId, onBack, project, investors: projectInvestors }: ProjectPayoutProps) {
   const [totalBarrels, setTotalBarrels] = useState('');
   const [pricePerBarrel, setPricePerBarrel] = useState('');
+  const [expenses, setExpenses] = useState('');
   const [sendEmails, setSendEmails] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [editingInvestor, setEditingInvestor] = useState<Investor | null>(null);
   const [showInvestorModal, setShowInvestorModal] = useState(false);
+  const [customBaseBarrelsInput, setCustomBaseBarrelsInput] = useState<string>('');
   const [calculations, setCalculations] = useState({
     grossRevenue: 0,
     severanceTax: 0,
     netRevenue: 0,
     investorPayout: 0,
+    expenses: 0,
     companyRevenue: 0,
     investorDistributions: [] as InvestorDistribution[]
   });
   const [showPayoutModal, setShowPayoutModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const [investors, setInvestors] = useState<Investor[]>([
-    { id: '1', name: 'Sarah Johnson', ownership: 0.15, email: 'sarah.j@example.com', invested: '$420,000' },
-    { id: '2', name: 'Michael Chen', ownership: 0.20, email: 'm.chen@example.com', invested: '$560,000' },
-    { id: '3', name: 'Emma Davis', ownership: 0.25, email: 'emma.d@example.com', invested: '$700,000' },
-    { id: '4', name: 'James Wilson', ownership: 0.15, email: 'j.wilson@example.com', invested: '$420,000' },
-    { id: '5', name: 'Lisa Anderson', ownership: 0.25, email: 'lisa.a@example.com', invested: '$700,000' }
-  ]);
+  const [investors, setInvestors] = useState<Investor[]>([]);
+
+  // Map real investors from parent into local investors model
+  useEffect(() => {
+    console.log('ProjectPayout - Received projectInvestors:', projectInvestors);
+    console.log('ProjectPayout - Number of investors received:', projectInvestors?.length || 0);
+    
+    const mapped = (projectInvestors || []).map((inv, idx) => ({
+      id: String(inv.investor_id ?? idx),
+      name: inv.investor_name,
+      ownership: (inv.percentage_owned || 0) / 100, // convert percent to fraction
+      email: inv.investor_email,
+      invested: inv.investment_amount ? `$${inv.investment_amount.toLocaleString()}` : 'N/A',
+    }));
+    
+    console.log('ProjectPayout - Mapped investors:', mapped);
+    console.log('ProjectPayout - Number of mapped investors:', mapped.length);
+    
+    setInvestors(mapped);
+  }, [projectInvestors]);
 
   useEffect(() => {
     if (pricePerBarrel && totalBarrels) {
-      const barrels = parseFloat(totalBarrels);
+      const defaultBarrels = parseFloat(totalBarrels);
       const price = parseFloat(pricePerBarrel);
-      if (isNaN(barrels) || isNaN(price)) return;
+      const expensesAmount = parseFloat(expenses) || 0;
+      if (isNaN(defaultBarrels) || isNaN(price)) return;
 
-      const grossRevenue = barrels * price;
+      // Step 1: Calculate gross revenue from total barrels
+      const grossRevenue = defaultBarrels * price;
       const severanceTax = grossRevenue * 0.046;
       const netRevenue = grossRevenue - severanceTax;
       const investorPayout = netRevenue * 0.75;
       const companyRevenue = netRevenue * 0.25;
+      
+      // Subtract expenses from investor payout
+      const netInvestorPayout = investorPayout - expensesAmount;
 
-      const investorBarrelsArr = investors.map(inv => {
-        const baseBarrels = inv.customBaseBarrels ?? barrels;
-        const totalBarrelsForInvestor = baseBarrels * inv.ownership;
-        return { id: inv.id, baseBarrels, totalBarrels: totalBarrelsForInvestor };
-      });
-      const sumTotalBarrels = investorBarrelsArr.reduce((sum, inv) => sum + inv.totalBarrels, 0);
-
-      const investorDistributions = investors.map(investor => {
-        const baseBarrels = investor.customBaseBarrels ?? barrels;
+      // Step 2: Calculate each investor's base barrels and total barrels
+      const investorBarrels = investors.map(investor => {
+        const baseBarrels = investor.customBaseBarrels !== undefined 
+          ? investor.customBaseBarrels 
+          : defaultBarrels;
         const totalBarrelsForInvestor = baseBarrels * investor.ownership;
-        const share = sumTotalBarrels > 0 ? totalBarrelsForInvestor / sumTotalBarrels : 0;
-        const investorAmount = investorPayout * share;
         return {
           id: investor.id,
           name: investor.name,
           email: investor.email,
           baseBarrels,
-          totalBarrels: totalBarrelsForInvestor,
-          amount: investorAmount
+          totalBarrelsForInvestor,
+        };
+      });
+
+      // Step 3: Calculate sum of all investors' total barrels
+      const sumTotalBarrels = investorBarrels.reduce((sum, inv) => sum + inv.totalBarrelsForInvestor, 0);
+
+      // Step 4: Calculate each investor's share and payout (based on share, which is affected by custom base barrels)
+      const investorDistributions = investorBarrels.map(inv => {
+        const share = sumTotalBarrels > 0 ? inv.totalBarrelsForInvestor / sumTotalBarrels : 0;
+        // Calculate payout based on share (affected by custom base barrels), not ownership
+        const amount = netInvestorPayout * share;
+        return {
+          id: inv.id,
+          name: inv.name,
+          email: inv.email,
+          baseBarrels: inv.baseBarrels,
+          totalBarrels: inv.totalBarrelsForInvestor,
+          share: share * 100, // Convert to percentage for display only
+          amount
         };
       });
 
@@ -93,12 +152,13 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
         netRevenue,
         investorPayout,
         companyRevenue,
+        expenses: expensesAmount,
         investorDistributions
       });
     }
-  }, [totalBarrels, pricePerBarrel, investors]);
+  }, [totalBarrels, pricePerBarrel, expenses, investors]);
 
-  const handleInvestorEdit = (investor: Investor, customBaseBarrels: number) => {
+  const handleInvestorEdit = (investor: Investor, customBaseBarrels: number | undefined) => {
     setInvestors(current => 
       current.map(inv => 
         inv.id === investor.id 
@@ -112,14 +172,68 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
     setShowPayoutModal(true);
     setIsProcessing(false);
     setIsSuccess(false);
+    setErrorMessage('');
   };
 
-  const handleConfirmPayout = () => {
+  const handleConfirmPayout = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
+    setErrorMessage('');
+    
+    try {
+      // Extract month and year from selectedMonth (format: YYYY-MM)
+      const [year, month] = selectedMonth.split('-');
+      
+      // Step 1: Call the Supabase RPC to insert/update revenue
+      const expensesAmount = parseFloat(expenses) || 0;
+      const revenueResult = await supabase
+        .rpc('insert_or_update_revenue', {
+          input_month: parseInt(month),
+          input_project_id: projectId,
+          input_total_revenue: calculations.investorPayout - expensesAmount, // Investor Payout minus expenses
+          input_year: parseInt(year)
+        });
+      
+      if (revenueResult.error) {
+        console.error('Error saving revenue:', revenueResult.error);
+        setErrorMessage(`Error saving revenue data: ${revenueResult.error.message}`);
+        setIsProcessing(false);
+        return;
+      }
+      
+      console.log('Revenue saved successfully:', revenueResult.data);
+      
+      // Step 2: Call the payout calculation API
+      const payoutResult = await supabase
+        .rpc('calculate_payouts_test', {
+          input_month: parseInt(month),
+          input_project_id: projectId,
+          input_year: parseInt(year)
+        });
+      
+      if (payoutResult.error) {
+        console.error('Error calculating payouts:', payoutResult.error);
+        setErrorMessage(`Error calculating payouts: ${payoutResult.error.message}`);
+        setIsProcessing(false);
+        return;
+      }
+      
+      console.log('Payouts calculated successfully:', payoutResult.data);
+      
+      // Step 3: Show success and redirect after a short delay
+      setTimeout(() => {
+        setIsProcessing(false);
+        setIsSuccess(true);
+        // Redirect to project view after showing success message
+        setTimeout(() => {
+          onBack();
+        }, 2000);
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Error in handleConfirmPayout:', error);
+      setErrorMessage('Error processing payout. Please try again.');
       setIsProcessing(false);
-      setIsSuccess(true);
-    }, 2000);
+    }
   };
 
   return (
@@ -188,6 +302,22 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
               </div>
             </div>
           </div>
+          <div className="mt-6">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              Expenses
+            </label>
+            <div className="relative">
+              <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+              <input
+                type="number"
+                value={expenses}
+                onChange={(e) => setExpenses(e.target.value)}
+                className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter expenses (e.g., 800)"
+                step="0.01"
+              />
+            </div>
+          </div>
         </div>
 
         {pricePerBarrel && totalBarrels && (
@@ -216,6 +346,12 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
                 <p className="text-sm text-gray-400">Investor Payout (75%)</p>
                 <p className="text-xl font-semibold text-green-400">
                   ${calculations.investorPayout.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-white/5">
+                <p className="text-sm text-gray-400">Expenses</p>
+                <p className="text-xl font-semibold text-red-400">
+                  -${calculations.expenses.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </p>
               </div>
               <div className="p-4 rounded-xl bg-white/5">
@@ -300,17 +436,17 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
                         </td>
                         <td className="px-6 py-4 text-gray-300">{investor.invested}</td>
                         <td className="px-6 py-4 text-gray-300">
-                          {distribution?.baseBarrels.toFixed(0)} BBL
+                          <span className={hasCustomBase ? 'text-yellow-400 font-medium' : ''}>
+                            {distribution?.baseBarrels.toFixed(0)} BBL
+                          </span>
+                          {hasCustomBase && (
+                            <span className="text-xs text-yellow-400 ml-1">(custom)</span>
+                          )}
                         </td>
                         <td className="px-6 py-4">
-                          <div className="flex items-center space-x-2">
-                            <span className={`text-gray-300 ${hasCustomBase ? 'text-yellow-400' : ''}`}>
-                              {distribution?.totalBarrels.toFixed(0)} BBL
-                            </span>
-                            {hasCustomBase && (
-                              <span className="text-xs text-yellow-400">(custom base)</span>
-                            )}
-                          </div>
+                          <span className="text-gray-300">
+                            {distribution?.totalBarrels.toFixed(0)} BBL
+                          </span>
                         </td>
                         <td className="px-6 py-4 text-right">
                           {distribution && (
@@ -323,9 +459,14 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
                           <button
                             onClick={() => {
                               setEditingInvestor(investor);
+                              const defaultValue = investor.customBaseBarrels !== undefined 
+                                ? investor.customBaseBarrels.toString() 
+                                : totalBarrels;
+                              setCustomBaseBarrelsInput(defaultValue);
                               setShowInvestorModal(true);
                             }}
-                            className="p-1 text-gray-400 hover:text-gray-300"
+                            className="p-1 text-gray-400 hover:text-gray-300 transition-colors"
+                            title="Set custom base barrels"
                           >
                             <Edit className="h-4 w-4" />
                           </button>
@@ -371,6 +512,12 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
 
               <div className="space-y-6">
                 <p className="text-gray-400 mb-6">Review the payout summary and confirm to send distributions to all investors.</p>
+                
+                {errorMessage && (
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                    <p className="text-red-400 text-sm">{errorMessage}</p>
+                  </div>
+                )}
 
                 <div className="bg-white/5 rounded-xl p-6 border border-white/10">
                   <h3 className="text-lg font-medium text-white mb-4">Payout Information</h3>
@@ -446,7 +593,7 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 rounded-2xl animate-fade-in">
                   <CheckCircle2 className="h-16 w-16 text-green-400 mb-4 animate-bounce-in" />
                   <h3 className="text-xl font-semibold text-white mb-2">Payout Processed!</h3>
-                  <p className="text-gray-400 mb-6 text-center">All investor distributions have been processed and sent successfully.</p>
+                  <p className="text-gray-400 mb-6 text-center">Revenue saved and investor payouts calculated successfully. Redirecting to project view...</p>
                   <button
                     onClick={() => setShowPayoutModal(false)}
                     className="px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors"
@@ -465,19 +612,7 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
               <h3 className="text-lg font-semibold text-white mb-6">
                 Adjust Base Barrels for {editingInvestor.name}
               </h3>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
-                  const customBaseBarrels = parseFloat(formData.get('baseBarrels') as string);
-                  if (!isNaN(customBaseBarrels)) {
-                    handleInvestorEdit(editingInvestor, customBaseBarrels);
-                  }
-                  setShowInvestorModal(false);
-                  setEditingInvestor(null);
-                }}
-                className="space-y-6"
-              >
+              <div className="space-y-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-2">
                     Base Barrels for Calculation
@@ -486,19 +621,19 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
                     <Droplets className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                     <input
                       type="number"
-                      name="baseBarrels"
-                      required
-                      defaultValue={editingInvestor.customBaseBarrels ?? parseFloat(totalBarrels)}
+                      value={customBaseBarrelsInput}
+                      onChange={(e) => setCustomBaseBarrelsInput(e.target.value)}
                       step="1"
+                      min="0"
                       className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="Enter base barrels for calculation"
                     />
                   </div>
                   <p className="mt-2 text-sm text-gray-400">
-                    Default: {parseFloat(totalBarrels).toFixed(0)} BBL (top-level barrels)
+                    Default: {parseFloat(totalBarrels || '0').toFixed(0)} BBL (top-level barrels)
                   </p>
                   <p className="mt-1 text-sm text-gray-400">
-                    This value will be multiplied by the investor's ownership percentage to determine their total barrels for payout calculation.
+                    This value will be multiplied by the investor's ownership percentage to determine their total barrels.
                   </p>
                 </div>
 
@@ -508,19 +643,44 @@ export function ProjectPayout({ projectId, onBack, project }: ProjectPayoutProps
                     onClick={() => {
                       setShowInvestorModal(false);
                       setEditingInvestor(null);
+                      setCustomBaseBarrelsInput('');
                     }}
-                    className="px-4 py-2 text-gray-400 hover:text-gray-300"
+                    className="px-4 py-2 text-gray-400 hover:text-gray-300 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
-                    type="submit"
-                    className="px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600"
+                    type="button"
+                    onClick={() => {
+                      // Clear custom base barrels (use default)
+                      if (editingInvestor) {
+                        handleInvestorEdit(editingInvestor, undefined);
+                      }
+                      setShowInvestorModal(false);
+                      setEditingInvestor(null);
+                      setCustomBaseBarrelsInput('');
+                    }}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-xl hover:bg-gray-700 transition-colors"
+                  >
+                    Reset to Default
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const customBaseBarrels = parseFloat(customBaseBarrelsInput);
+                      if (!isNaN(customBaseBarrels) && customBaseBarrels >= 0 && editingInvestor) {
+                        handleInvestorEdit(editingInvestor, customBaseBarrels);
+                        setShowInvestorModal(false);
+                        setEditingInvestor(null);
+                        setCustomBaseBarrelsInput('');
+                      }
+                    }}
+                    className="px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors"
                   >
                     Save Adjustment
                   </button>
                 </div>
-              </form>
+              </div>
             </div>
           </div>
         )}

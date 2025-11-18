@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
-import { Analytics } from './components/Analytics';
+import { MyProjects } from './components/MyProjects';
 import { Reports } from './components/Reports';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { Investments } from './components/Investments';
@@ -15,8 +15,12 @@ import { AdminProjects } from './components/admin/AdminProjects';
 import { AdminUsers } from './components/admin/AdminUsers';
 import { AdminReports } from './components/admin/AdminReports';
 import { AdminSettings } from './components/admin/AdminSettings';
+import { AdminNotifications } from './components/admin/AdminNotifications';
+import { AdminNewReferrals } from './components/admin/AdminNewReferrals';
 import { OnboardingModal } from './components/OnboardingModal';
+import { ReferralForm } from './components/ReferralForm';
 import { supabase } from './supabaseClient';
+import { fetchUnviewedInvestmentRequestsCount, trackReferralClick } from './api/services';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -27,6 +31,9 @@ function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [unviewedNotificationsCount, setUnviewedNotificationsCount] = useState<number>(0);
+  const [showReferralForm, setShowReferralForm] = useState(false);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
 
   useEffect(() => {
     // Check if this is the first time logging in
@@ -37,11 +44,30 @@ function App() {
     }
   }, [isAuthenticated, isAdmin]);
 
+  // Handle referral link clicks
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const refCode = urlParams.get('ref');
+    
+    if (refCode) {
+      // Store referral code and show form
+      setReferralCode(refCode);
+      setShowReferralForm(true);
+      
+      // Clean up URL (remove ref parameter)
+      urlParams.delete('ref');
+      const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
+
   // Check for existing session on app load
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
         setIsAuthenticated(true);
+        console.log('Session Check - Session:', session);
+        console.log('Session Check - User ID:', session.user.id);
         // Fetch user profile from users table
         const { data: userProfile } = await supabase
           .from('users')
@@ -53,23 +79,75 @@ function App() {
         console.log('Session Check - User Role:', userProfile?.role);
         console.log('Session Check - Is Admin:', userProfile?.role === 'admin');
         
-        setIsAdmin(userProfile?.role === 'admin');
+        const isAdminUser = userProfile?.role === 'admin';
+        setIsAdmin(isAdminUser);
         setUserProfile(userProfile);
+        
+        // Ensure dashboard tab is active when admin session is restored
+        if (isAdminUser) {
+          setActiveTab('dashboard');
+          // Fetch unviewed notifications count for admin
+          fetchUnviewedInvestmentRequestsCount().then(count => {
+            setUnviewedNotificationsCount(count);
+          });
+        }
       }
       setLoading(false);
     });
   }, []);
 
+  // Fetch and subscribe to unviewed notifications count for admins
+  useEffect(() => {
+    if (!isAdmin || !isAuthenticated) return;
+
+    // Initial fetch
+    fetchUnviewedInvestmentRequestsCount().then(count => {
+      setUnviewedNotificationsCount(count);
+    });
+
+    // Set up real-time subscription
+    const subscription = supabase
+      .channel('investment_requests_count_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'investment_requests' },
+        () => {
+          fetchUnviewedInvestmentRequestsCount().then(count => {
+            setUnviewedNotificationsCount(count);
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [isAdmin, isAuthenticated]);
+
   if (loading) {
     return <div className="flex items-center justify-center h-screen bg-apple-gradient"><div className="text-white text-lg">Loading...</div></div>;
   }
 
-  console.log('App State - isAuthenticated:', isAuthenticated);
-  console.log('App State - isAdmin:', isAdmin);
-  console.log('App State - userProfile:', userProfile);
+  // Show referral form if referral link was clicked
+  if (showReferralForm && referralCode) {
+    return (
+      <ReferralForm
+        referralCode={referralCode}
+        onSuccess={() => {
+          setShowReferralForm(false);
+          setReferralCode(null);
+          // Optionally redirect to login or show success message
+        }}
+      />
+    );
+  }
+
+  // console.log('App State - isAuthenticated:', isAuthenticated);
+  // console.log('App State - isAdmin:', isAdmin);
+  // console.log('App State - userProfile:', userProfile);
 
   if (!isAuthenticated) {
-    return <Login setIsAuthenticated={setIsAuthenticated} setIsAdmin={setIsAdmin} setUserProfile={setUserProfile} />;
+    return <Login setIsAuthenticated={setIsAuthenticated} setIsAdmin={setIsAdmin} setUserProfile={setUserProfile} setActiveTab={setActiveTab} />;
   }
 
   if (isAdmin) {
@@ -81,6 +159,7 @@ function App() {
           isAdmin={isAdmin}
           setIsAuthenticated={setIsAuthenticated}
           userProfile={userProfile}
+          unviewedNotificationsCount={unviewedNotificationsCount}
         />
         <div className="flex-1 flex flex-col overflow-hidden">
           <Navbar
@@ -90,25 +169,49 @@ function App() {
             setActiveTab={setActiveTab}
             isAdmin={isAdmin}
           />
-          {activeTab === 'dashboard' ? (
+          {activeTab === 'dashboard' && (
             <AdminDashboard 
+              key={userProfile?.id || 'dashboard'}
               onViewProfile={(user) => {
                 setActiveTab('users');
                 setSelectedUser(user);
               }}
               userProfile={userProfile}
             />
-          ) : activeTab === 'projects' ? (
+          )}
+          {activeTab === 'projects' && (
             <AdminProjects />
-          ) : activeTab === 'users' ? (
+          )}
+          {activeTab === 'users' && (
             <AdminUsers initialSelectedUser={selectedUser} />
-          ) : activeTab === 'reports' ? (
+          )}
+          {activeTab === 'reports' && (
             <AdminReports />
-          ) : activeTab === 'settings' ? (
-            <AdminSettings />
-          ) : activeTab === 'forum' ? (
+          )}
+          {activeTab === 'settings' && (
+            <AdminSettings userProfile={userProfile} />
+          )}
+          {activeTab === 'notifications' && (
+            <AdminNotifications 
+              onMarkAsViewed={() => {
+                // Refresh unviewed count when requests are marked as viewed
+                fetchUnviewedInvestmentRequestsCount().then(count => {
+                  setUnviewedNotificationsCount(count);
+                });
+              }}
+            />
+          )}
+          {activeTab === 'new referrals' && (
+            <AdminNewReferrals 
+              onMarkAsViewed={() => {
+                // Refresh unviewed count when submissions are marked as viewed
+                // You can add a similar count system for referrals if needed
+              }}
+            />
+          )}
+          {activeTab === 'forum' && (
             <Forum userProfile={userProfile} />
-          ) : null}
+          )}
         </div>
       </div>
     );
@@ -132,19 +235,19 @@ function App() {
           isAdmin={isAdmin}
         />
         {activeTab === 'dashboard' ? (
-          <Dashboard userProfile={userProfile} />
-        ) : activeTab === 'analytics' ? (
-          <Analytics />
+          <Dashboard userProfile={userProfile} setActiveTab={setActiveTab} />
+        ) : activeTab === 'my projects' ? (
+          <MyProjects userProfile={userProfile} />
         ) : activeTab === 'reports' ? (
-          <Reports />
+          <Reports userProfile={userProfile} />
         ) : activeTab === 'affiliates' ? (
-          <Affiliates />
+          <Affiliates userProfile={userProfile} />
         ) : activeTab === 'knowledge base' ? (
           <KnowledgeBase />
         ) : activeTab === 'new investments' ? (
-          <Investments />
+          <Investments userProfile={userProfile} />
         ) : activeTab === 'settings' ? (
-          <Settings />
+          <Settings userProfile={userProfile} />
         ) : null}
         <OnboardingModal
           isOpen={showOnboarding}

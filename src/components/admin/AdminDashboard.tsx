@@ -1,25 +1,66 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Users, FolderOpen, FileText, TrendingUp, BarChart3, AlertCircle, DollarSign, Activity, ChevronRight, Droplets, Sun } from 'lucide-react';
 import { AreaChart, Area, BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { fetchProjectsWithInvestorCount, fetchTotalRevenueMonthly, fetchProjectRevenueByMonth, fetchTotalRevenueAllProjects, fetchInvestorReturnSummary } from '../../api/services';
 
 export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?: (user: any) => void, userProfile?: any }) {
   // Get current time to display appropriate greeting
   const currentHour = new Date().getHours();
   const greeting = currentHour < 12 ? 'Good morning' : currentHour < 18 ? 'Good afternoon' : 'Good evening';
 
+  const [projects, setProjects] = useState<any[]>([]);
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [totalRevenueAllMonths, setTotalRevenueAllMonths] = useState<number | null>(null);
+  const [selectedPerfMetric, setSelectedPerfMetric] = useState<'monthly' | 'total'>('monthly');
+  const [perfMonth, setPerfMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [perfData, setPerfData] = useState<Array<{ name: string; value: number }>>([]);
+  const [loadingPerf, setLoadingPerf] = useState<boolean>(false);
+  const [investorReturns, setInvestorReturns] = useState<any[]>([]);
+  const [loadingInvestorReturns, setLoadingInvestorReturns] = useState<boolean>(false);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setLoadingStats(true);
+      try {
+        const [data, monthlyTotals] = await Promise.all([
+          fetchProjectsWithInvestorCount(),
+          fetchTotalRevenueMonthly(),
+        ]);
+        if (!mounted) return;
+        setProjects(Array.isArray(data) ? data : []);
+        const summed = (monthlyTotals || []).reduce((sum: number, row: any) => sum + (Number(row.total_revenue) || 0), 0);
+        setTotalRevenueAllMonths(summed);
+      } catch (e) {
+        console.error('AdminDashboard: failed to fetch projects', e);
+        if (!mounted) return;
+        setProjects([]);
+      } finally {
+        if (mounted) setLoadingStats(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const activeProjects = projects.filter(p => (p.status || '').toLowerCase() === 'active');
+  const activeProjectsCount = activeProjects.length;
+  const activeInvestors = activeProjects.reduce((sum, p) => sum + (Number(p.investor_count) || 0), 0);
+  const totalRevenueFallback = projects.reduce((sum, p) => sum + (Number(p.monthly_revenue) || 0), 0);
+  const totalRevenue = (totalRevenueAllMonths ?? totalRevenueFallback);
+
   const stats = [
     {
       label: 'Active Investors',
-      value: '130',
-      change: '+12.5%',
+      value: loadingStats ? '...' : activeInvestors.toLocaleString(),
+      change: '',
       trend: 'up',
       icon: Users,
       color: 'blue',
     },
     {
       label: 'Active Projects',
-      value: '186',
-      change: '+8.2%',
+      value: loadingStats ? '...' : activeProjectsCount.toString(),
+      change: '',
       trend: 'up',
       icon: FolderOpen,
       color: 'purple',
@@ -34,76 +75,84 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
     },
     {
       label: 'Total Revenue',
-      value: '$4.2M',
-      change: '+18.3%',
+      value: loadingStats ? '...' : `$${(totalRevenue || 0).toLocaleString()}`,
+      change: '',
       trend: 'up',
       icon: DollarSign,
       color: 'yellow',
     }
   ];
 
+  // Load investor performance summary
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setLoadingInvestorReturns(true);
+      try {
+        const rows = await fetchInvestorReturnSummary();
+        if (!mounted) return;
+        setInvestorReturns(rows);
+      } catch (e) {
+        console.error('AdminDashboard: failed to fetch investor return summary', e);
+        if (!mounted) return;
+        setInvestorReturns([]);
+      } finally {
+        if (mounted) setLoadingInvestorReturns(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Load Project Performance data based on selection
+  useEffect(() => {
+    const loadMonthlyRevenue = async () => {
+      if (!projects || projects.length === 0) { setPerfData([]); return; }
+      setLoadingPerf(true);
+      try {
+        const rows = await Promise.all(
+          projects.map(async (p: any) => {
+            const pid = p.project_id || p.id || p.ID || p.PROJECT_ID;
+            const name = p.project_name || p.name || p.NAME || p.PROJECT_NAME || 'Project';
+            if (!pid) return { name, value: 0 };
+            const revenue = await fetchProjectRevenueByMonth(String(pid), perfMonth);
+            return { name, value: Number(revenue || 0) };
+          })
+        );
+        setPerfData(rows);
+      } catch (e) {
+        console.error('Failed loading monthly revenue per project:', e);
+        setPerfData([]);
+      } finally {
+        setLoadingPerf(false);
+      }
+    };
+
+    const loadTotalRevenue = async () => {
+      setLoadingPerf(true);
+      try {
+        const totals = await fetchTotalRevenueAllProjects();
+        const rows = (totals || []).map((row: any) => ({
+          name: row.project_name || 'Project',
+          value: Number(row.total_revenue || 0),
+        }));
+        setPerfData(rows);
+      } catch (e) {
+        console.error('Failed loading total revenue per project:', e);
+        setPerfData([]);
+      } finally {
+        setLoadingPerf(false);
+      }
+    };
+
+    if (selectedPerfMetric === 'monthly') loadMonthlyRevenue();
+    else loadTotalRevenue();
+  }, [selectedPerfMetric, perfMonth, projects]);
+
   const [selectedTab, setSelectedTab] = useState('overview');
   const [selectedProductionView, setSelectedProductionView] = useState('total');
   const [selectedTimeframe, setSelectedTimeframe] = useState('6m');
 
-  const upcomingBirthdays = [
-    {
-      name: 'Sarah Johnson',
-      id: '1',
-      email: 'sarah.j@example.com',
-      birthday: '1975-03-25',
-      totalInvested: '$250,000',
-      activeProjects: 3,
-      daysUntil: 2,
-      status: 'Active',
-      joinDate: '2024-01-15',
-      phone: '+1 (555) 123-4567',
-      role: 'investor',
-      lastLogin: '2024-03-15 14:30'
-    },
-    {
-      name: 'Michael Chen',
-      id: '2',
-      email: 'm.chen@example.com',
-      birthday: '1982-03-28',
-      totalInvested: '$180,000',
-      activeProjects: 2,
-      daysUntil: 5,
-      status: 'Active',
-      joinDate: '2024-02-01',
-      phone: '+1 (555) 234-5678',
-      role: 'investor',
-      lastLogin: '2024-03-14 09:15'
-    },
-    {
-      name: 'Emma Davis',
-      id: '3',
-      email: 'emma.d@example.com',
-      birthday: '1978-04-01',
-      totalInvested: '$320,000',
-      activeProjects: 4,
-      daysUntil: 9,
-      status: 'Active',
-      joinDate: '2024-01-05',
-      phone: '+1 (555) 345-6789',
-      role: 'investor',
-      lastLogin: '2024-03-15 11:45'
-    },
-    {
-      name: 'James Wilson',
-      id: '4',
-      email: 'j.wilson@example.com',
-      birthday: '1980-04-05',
-      totalInvested: '$150,000',
-      activeProjects: 1,
-      daysUntil: 13,
-      status: 'Inactive',
-      joinDate: '2024-02-10',
-      phone: '+1 (555) 456-7890',
-      role: 'investor',
-      lastLogin: '2024-03-10 16:20'
-    }
-  ];
+  
 
   const investorPerformance = [
     {
@@ -346,45 +395,43 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-white">Positive Returns</h2>
                 <span className="px-2 py-1 rounded-full text-sm bg-green-500/10 text-green-400 border border-green-500/20">
-                  {investorPerformance.filter(inv => inv.trend === 'up').length} Investors
+                  {investorReturns.filter(r => (r.return_status || '').toLowerCase().includes('positive')).length} Investors
                 </span>
               </div>
               <div className="space-y-4">
-                {investorPerformance
-                  .filter(investor => investor.trend === 'up')
-                  .map((investor, index) => (
-                    <div
-                      key={index}
-                      className="p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-medium text-white">{investor.name}</h3>
-                        <span className="text-green-400 font-medium">{investor.return}</span>
+                {loadingInvestorReturns ? (
+                  <div className="text-gray-400">Loading...</div>
+                ) : investorReturns
+                    .filter((r: any) => (r.return_status || '').toLowerCase().includes('positive'))
+                    .map((r: any, index: number) => (
+                      <div
+                        key={index}
+                        className="p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="font-medium text-white">{r.investor_name}</h3>
+                          {(() => {
+                            const invested = Number(r.total_investment) || 0;
+                            const payout = Number(r.total_payout) || 0;
+                            const pct = invested > 0 ? ((payout - invested) / invested) * 100 : 0;
+                            const label = pct >= 0 ? `+${pct.toFixed(1)}%` : `${pct.toFixed(1)}%`;
+                            return (
+                              <span className="text-green-400 font-medium">Positive {label}</span>
+                            );
+                          })()}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 mt-2 text-sm mb-3">
+                          <div>
+                            <span className="text-gray-400">Invested</span>
+                            <p className="text-white">${(Number(r.total_investment) || 0).toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <span className="text-gray-400">Total Payout</span>
+                            <p className="text-green-400">${(Number(r.total_payout) || 0).toLocaleString()}</p>
+                          </div>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4 mt-2 text-sm mb-3">
-                        <div>
-                          <span className="text-gray-400">Invested</span>
-                          <p className="text-white">{investor.invested}</p>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Current Value</span>
-                          <p className="text-green-400">{investor.currentValue}</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 text-sm border-t border-white/10 pt-3">
-                        <div>
-                          <span className="text-gray-400">Time Invested</span>
-                          <p className="text-white">
-                            {Math.round((new Date().getTime() - new Date(investor.initialDate).getTime()) / (1000 * 60 * 60 * 24 * 30))} months
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Monthly Income</span>
-                          <p className="text-green-400">{investor.monthlyIncome}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
               </div>
             </div>
 
@@ -393,45 +440,43 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-white">Negative Returns</h2>
                 <span className="px-2 py-1 rounded-full text-sm bg-red-500/10 text-red-400 border border-red-500/20">
-                  {investorPerformance.filter(inv => inv.trend === 'down').length} Investors
+                  {investorReturns.filter(r => (r.return_status || '').toLowerCase().includes('negative')).length} Investors
                 </span>
               </div>
               <div className="space-y-4">
-                {investorPerformance
-                  .filter(investor => investor.trend === 'down')
-                  .map((investor, index) => (
-                    <div
-                      key={index}
-                      className="p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-medium text-white">{investor.name}</h3>
-                        <span className="text-red-400 font-medium">{investor.return}</span>
+                {loadingInvestorReturns ? (
+                  <div className="text-gray-400">Loading...</div>
+                ) : investorReturns
+                    .filter((r: any) => (r.return_status || '').toLowerCase().includes('negative'))
+                    .map((r: any, index: number) => (
+                      <div
+                        key={index}
+                        className="p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="font-medium text-white">{r.investor_name}</h3>
+                          {(() => {
+                            const invested = Number(r.total_investment) || 0;
+                            const payout = Number(r.total_payout) || 0;
+                            const pct = invested > 0 ? ((payout - invested) / invested) * 100 : 0;
+                            const label = pct >= 0 ? `+${pct.toFixed(1)}%` : `${pct.toFixed(1)}%`;
+                            return (
+                              <span className="text-red-400 font-medium">Negative {label}</span>
+                            );
+                          })()}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 mt-2 text-sm mb-3">
+                          <div>
+                            <span className="text-gray-400">Invested</span>
+                            <p className="text-white">${(Number(r.total_investment) || 0).toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <span className="text-gray-400">Total Payout</span>
+                            <p className="text-red-400">${(Number(r.total_payout) || 0).toLocaleString()}</p>
+                          </div>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4 mt-2 text-sm mb-3">
-                        <div>
-                          <span className="text-gray-400">Invested</span>
-                          <p className="text-white">{investor.invested}</p>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Current Value</span>
-                          <p className="text-red-400">{investor.currentValue}</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 text-sm border-t border-white/10 pt-3">
-                        <div>
-                          <span className="text-gray-400">Time Invested</span>
-                          <p className="text-white">
-                            {Math.round((new Date().getTime() - new Date(investor.initialDate).getTime()) / (1000 * 60 * 60 * 24 * 30))} months
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Monthly Income</span>
-                          <p className="text-red-400">{investor.monthlyIncome}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
               </div>
             </div>
           </div>
@@ -559,15 +604,39 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
           <div className="bg-card-gradient rounded-2xl p-6 hover-neon-glow">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-[var(--text-primary)]">Project Performance</h2>
-              <select className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-sm text-[var(--text-muted)]">
-                <option>Monthly Revenue</option>
-                <option>Total Revenue</option>
-              </select>
+              <div className="flex items-center gap-2">
+                {selectedPerfMetric === 'monthly' && (
+                  <input
+                    type="month"
+                    value={perfMonth}
+                    onChange={(e) => setPerfMonth(e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-sm text-[var(--text-muted)]"
+                    title="Select month to view monthly revenue by project"
+                  />
+                )}
+                <select
+                  value={selectedPerfMetric}
+                  onChange={(e) => setSelectedPerfMetric(e.target.value as 'monthly' | 'total')}
+                  className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-sm text-[var(--text-muted)]"
+                >
+                  <option value="monthly">Monthly Revenue</option>
+                  <option value="total">Total Revenue</option>
+                </select>
+              </div>
             </div>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <RechartsBarChart data={projectPerformance}>
-                  <XAxis dataKey="name" stroke="var(--text-muted)" />
+                <RechartsBarChart data={perfData}>
+                  <XAxis
+                    dataKey="name"
+                    stroke="var(--text-muted)"
+                    interval={0}
+                    angle={-35}
+                    textAnchor="end"
+                    tick={{ fill: 'var(--text-muted)' }}
+                    height={80}
+                    tickMargin={10}
+                  />
                   <YAxis stroke="var(--text-muted)" tickFormatter={(value) => `$${value/1000}k`} />
                   <Tooltip
                     contentStyle={{
@@ -583,55 +652,7 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
           </div>
         </div>
 
-        {/* Upcoming Birthdays */}
-        <div className="bg-card-gradient rounded-2xl p-6 hover-neon-glow">
-          <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-6">Upcoming Investor Birthdays</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {upcomingBirthdays.map((investor, index) => (
-              <div
-                key={index}
-                className="bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-all duration-200"
-                onClick={() => onViewProfile?.(investor)}
-                role="button"
-                tabIndex={0}
-                style={{ cursor: 'pointer' }}
-              >
-                <div className="flex items-center space-x-3 mb-3">
-                  <div className="h-10 w-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-                    <span className="text-lg font-semibold text-purple-400">
-                      {investor.name.split(' ').map(n => n[0]).join('')}
-                    </span>
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-[var(--text-primary)]">{investor.name}</h3>
-                    <p className="text-sm text-[var(--text-muted)]">
-                      {new Date(investor.birthday).toLocaleDateString(undefined, { 
-                        month: 'long',
-                        day: 'numeric'
-                      })}
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-[var(--text-muted)]">Days Until</span>
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                      {investor.daysUntil} days
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-[var(--text-muted)]">Invested</span>
-                    <span className="text-[var(--text-primary)]">{investor.totalInvested}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-[var(--text-muted)]">Projects</span>
-                    <span className="text-[var(--text-primary)]">{investor.activeProjects}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        
         </>
         )}
       </div>

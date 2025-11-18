@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
-import { X, Mail, Phone, Building, DollarSign, Send, Calendar } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Phone, Building, DollarSign, Send, Calendar } from 'lucide-react';
+import { supabase } from '../supabaseClient';
 
 interface InvestmentContactModalProps {
   isOpen: boolean;
   onClose: () => void;
   investment: any;
+  userProfile?: any;
+  onSuccess?: () => void;
 }
 
-export function InvestmentContactModal({ isOpen, onClose, investment }: InvestmentContactModalProps) {
+export function InvestmentContactModal({ isOpen, onClose, investment, userProfile, onSuccess }: InvestmentContactModalProps) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -19,20 +22,93 @@ export function InvestmentContactModal({ isOpen, onClose, investment }: Investme
     hasComments: false
   });
 
+  // Update form data when modal opens or userProfile changes
+  useEffect(() => {
+    if (isOpen && userProfile) {
+      setFormData(prev => ({
+        ...prev,
+        name: userProfile?.full_name || userProfile?.contact_name || userProfile?.account_name || prev.name || '',
+        email: userProfile?.email || prev.email || '',
+        phone: userProfile?.phone || userProfile?.contact_phone || prev.phone || '',
+        company: userProfile?.company || prev.company || '',
+      }));
+    } else if (!isOpen) {
+      // Reset form when modal closes
+      setFormData({
+        name: '',
+        email: '',
+        phone: '',
+        company: '',
+        units: '',
+        message: '',
+        preferredContact: 'email',
+        hasComments: false
+      });
+    }
+  }, [isOpen, userProfile]);
+
   // Calculate price per unit
   const pricePerUnit = investment?.targetRaise && investment?.totalUnits
     ? parseFloat(investment.targetRaise.replace(/[^0-9.-]+/g, '')) / parseFloat(investment.totalUnits)
     : 0;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // In a real application, this would send the data to an API
-    console.log('Investment interest submitted:', {
-      ...formData,
-      projectName: investment.name,
-      projectId: investment.id
-    });
-    onClose();
+    
+    try {
+      // Always use email from userProfile if available, fallback to formData
+      const investorEmail = userProfile?.email || formData.email;
+      
+      if (!investorEmail) {
+        alert('Error: Email address is required. Please contact support if this issue persists.');
+        return;
+      }
+      
+      // Save investment request to database
+      const { data, error } = await supabase
+        .from('investment_requests')
+        .insert([
+          {
+            investor_name: formData.name,
+            investor_email: investorEmail, // Always use email from userProfile
+            investor_phone: formData.phone || null,
+            company: formData.company || null,
+            project_name: investment.name,
+            units: formData.units ? parseInt(formData.units) : null,
+            message: formData.message || null,
+            preferred_contact: formData.preferredContact,
+            status: 'pending',
+            created_at: new Date().toISOString(),
+          },
+        ])
+        .select();
+
+      if (error) {
+        console.error('Error submitting investment request:', error);
+        // More detailed error message
+        if (error.code === 'PGRST116' || error.message?.includes('404') || error.message?.includes('does not exist')) {
+          alert('Error: The investment_requests table does not exist in the database. Please contact the administrator to set up the database table.');
+        } else {
+          alert(`Failed to submit investment request: ${error.message || 'Please try again.'}`);
+        }
+        return;
+      }
+
+      console.log('Investment request submitted successfully:', data);
+      
+      // Show success message (custom alert will be added later)
+      alert('Your investment request has been submitted successfully! Admins will be notified and will contact you soon.');
+      
+      // Call onSuccess callback to refresh requests list
+      if (onSuccess) {
+        onSuccess();
+      }
+      
+      onClose();
+    } catch (err) {
+      console.error('Error submitting investment request:', err);
+      alert('Failed to submit investment request. Please try again.');
+    }
   };
 
   if (!isOpen) return null;
@@ -93,23 +169,6 @@ export function InvestmentContactModal({ isOpen, onClose, investment }: Investme
                 className="w-full px-4 py-3 bg-[var(--input-background)] border border-[var(--input-border)] rounded-xl text-[var(--input-text)] placeholder-[var(--input-placeholder)] focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Enter your full name"
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-[var(--text-muted)] mb-2">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-4 top-3.5 h-5 w-5 text-[var(--text-muted)]" />
-                <input
-                  type="email"
-                  required
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full pl-12 pr-4 py-3 bg-[var(--input-background)] border border-[var(--input-border)] rounded-xl text-[var(--input-text)] placeholder-[var(--input-placeholder)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter your email"
-                />
-              </div>
             </div>
 
             <div>
