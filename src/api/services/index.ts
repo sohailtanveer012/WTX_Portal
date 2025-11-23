@@ -796,9 +796,10 @@ export async function uploadTaxDocument(
     }
 
     return { success: true, document: data };
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error uploading tax document:', err);
-    return { success: false, error: err.message || 'Failed to upload tax document' };
+    const errorMessage = err instanceof Error ? err.message : 'Failed to upload tax document';
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -825,9 +826,10 @@ export async function deleteTaxDocument(documentId: number, filePath: string): P
     }
 
     return { success: true };
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error deleting tax document:', err);
-    return { success: false, error: err.message || 'Failed to delete tax document' };
+    const errorMessage = err instanceof Error ? err.message : 'Failed to delete tax document';
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -871,5 +873,122 @@ export async function getInvestorPersonalInfo(investorId: number): Promise<Inves
   } catch (err) {
     console.error('Error fetching investor personal info:', err);
     return null;
+  }
+}
+
+// Get investor email from investor_id using get_investor_portfolio
+export async function getInvestorEmailById(investorId: number): Promise<string | null> {
+  try {
+    // Use get_investor_portfolio to get investor email
+    const portfolio = await fetchInvestorPortfolio(investorId);
+    
+    if (portfolio && portfolio.length > 0 && portfolio[0].investor_email) {
+      return portfolio[0].investor_email as string;
+    }
+
+    return null;
+  } catch (err) {
+    console.error('Error fetching investor email:', err);
+    return null;
+  }
+}
+
+// New user profile interface matching the RPC return
+export interface NewUserProfile {
+  user_id: string;
+  full_name: string;
+  email: string;
+  alt_email: string | null;
+  phone_number: string | null;
+  alt_phone_number: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  bank: string | null;
+  routing: string | null;
+  account: string | null;
+  account_type: string | null;
+  ssn: string | null;
+  dob: string | null;
+}
+
+// Get new user profile by email
+export async function getNewUserProfile(email: string): Promise<NewUserProfile | null> {
+  try {
+    const { data, error } = await supabase.rpc('get_new_user_profile', {
+      email_input: email
+    });
+
+    if (error) {
+      console.error('Error fetching new user profile:', error);
+      return null;
+    }
+
+    if (!data || data.length === 0) {
+      return null;
+    }
+
+    return data[0] as NewUserProfile;
+  } catch (err) {
+    console.error('Error fetching new user profile:', err);
+    return null;
+  }
+}
+
+// Get new user profile by investor_id (fetches email first, then calls RPC)
+export async function getNewUserProfileByInvestorId(investorId: number): Promise<NewUserProfile | null> {
+  try {
+    // First, get the investor's email
+    const email = await getInvestorEmailById(investorId);
+    
+    if (!email) {
+      console.error('Could not find email for investor ID:', investorId);
+      return null;
+    }
+
+    // Then, call the RPC with the email
+    return await getNewUserProfile(email);
+  } catch (err) {
+    console.error('Error fetching new user profile by investor ID:', err);
+    return null;
+  }
+}
+
+// Update investor personal info
+export async function updateInvestorPersonalInfo(
+  email: string,
+  updatedInfo: Partial<NewUserProfile>
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('update_investor_profile', {
+      email_input: email,
+      new_account: updatedInfo.account || null,
+      new_account_type: updatedInfo.account_type || null,
+      new_address: updatedInfo.address || null,
+      new_alt_email: updatedInfo.alt_email || null,
+      new_alt_phone_number: updatedInfo.alt_phone_number || null,
+      new_bank: updatedInfo.bank || null,
+      new_city: updatedInfo.city || null,
+      new_dob: updatedInfo.dob || null,
+      new_full_name: updatedInfo.full_name || null,
+      new_phone_number: updatedInfo.phone_number || null,
+      new_routing: updatedInfo.routing || null,
+      new_ssn: updatedInfo.ssn || null,
+      new_state: updatedInfo.state || null,
+      new_zip: updatedInfo.zip || null,
+    });
+
+    if (error) {
+      console.error('Error updating investor personal info:', error);
+      return { success: false, error: error.message };
+    }
+
+    console.log('Successfully updated investor profile:', data);
+    return { success: true };
+  } catch (err) {
+    console.error('Error updating investor personal info:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to update personal information';
+    return { success: false, error: errorMessage };
   }
 }
