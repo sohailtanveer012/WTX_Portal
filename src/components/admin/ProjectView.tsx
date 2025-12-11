@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Users, DollarSign, TrendingUp, TrendingDown, Droplets, Calendar, MapPin, BarChart3, Calculator, FileText, Download } from 'lucide-react';
+import { ArrowLeft, Users, DollarSign, TrendingUp, TrendingDown, Droplets, Calendar, MapPin, Calculator, FileText, Download } from 'lucide-react';
 import { ProjectPayout } from './ProjectPayout';
 import { ProjectFundingView } from './ProjectFundingView';
+import { ProjectHistory } from './ProjectHistory';
 import { fetchProjectInvestorsByMonth, fetchInvestorsByProject, fetchProjectRevenueByMonth } from '../../api/services';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
@@ -23,7 +24,6 @@ type ProjectInvestor = {
 
 export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProps) {
   const [selectedTimeRange, setSelectedTimeRange] = useState('6m');
-  const [selectedMetric, setSelectedMetric] = useState('production');
   const [revenueSeries, setRevenueSeries] = useState<Array<{ label: string; key: string; revenue: number }>>([]);
   const [isLoadingRevenueSeries, setIsLoadingRevenueSeries] = useState(false);
   const [showPayout, setShowPayout] = useState(false);
@@ -39,6 +39,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
   const [selectedMonth, setSelectedMonth] = useState(initialMonth || new Date().toISOString().slice(0, 7));
   const [monthlyRevenue, setMonthlyRevenue] = useState<number | null>(null);
   const [previousMonthRevenue, setPreviousMonthRevenue] = useState<number | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
   
   // Calculate total payout amount from investors
   const totalPayoutAmount = projectInvestors.reduce((sum, investor) => sum + (investor.payout_amount || 0), 0);
@@ -144,7 +145,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
       if (!actualProjectId) return;
       // Base on the currently selected month in the page
       const [yStr, mStr] = selectedMonth.split('-');
-      let base = new Date(parseInt(yStr), parseInt(mStr) - 1, 1);
+      const base = new Date(parseInt(yStr), parseInt(mStr) - 1, 1);
       const months: Array<{ key: string; label: string }> = [];
       for (let i = 11; i >= 0; i--) {
         const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
@@ -225,6 +226,16 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
       <ProjectFundingView
         projectId={project?.id || ''}
         onBack={onBack}
+      />
+    );
+  }
+
+  if (showHistory) {
+    return (
+      <ProjectHistory
+        projectId={projectId}
+        project={project}
+        onBack={() => setShowHistory(false)}
       />
     );
   }
@@ -446,8 +457,8 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                       }}
                       labelStyle={{ color: 'var(--text-primary)' }}
                       itemStyle={{ color: 'var(--text-primary)' }}
-                      formatter={(value: any) => [`$${Number(value).toLocaleString()}`, 'Revenue']}
-                      labelFormatter={(label: any) => label}
+                      formatter={(value: number) => [`$${Number(value).toLocaleString()}`, 'Revenue']}
+                      labelFormatter={(label: string) => label}
                     />
                     <Area type="monotone" dataKey="revenue" stroke="#10B981" fillOpacity={1} fill="url(#wellRevenue)" />
                   </AreaChart>
@@ -480,6 +491,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                 className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-gray-400"
                 title="Select month to view investor payouts"
               />
+            
               <select
                 value={selectedGroup}
                 onChange={(e) => setSelectedGroup(e.target.value)}

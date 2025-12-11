@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Search, Filter, ArrowUpDown } from 'lucide-react';
 import { NewProjectModal } from './NewProjectModal';
 import { ProjectView } from './ProjectView';
+import { ProjectHistory } from './ProjectHistory';
 import { fetchProjectsWithInvestorCount } from '../../api/services';
 
 // Type for project data from RPC
@@ -31,6 +32,7 @@ export function AdminProjects() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showMonthSelector, setShowMonthSelector] = useState(false);
   const [projectToView, setProjectToView] = useState<any>(null);
+  const [historyProject, setHistoryProject] = useState<any>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -110,6 +112,12 @@ export function AdminProjects() {
     setProjectToView(null);
   };
 
+  const handleViewHistory = () => {
+    setHistoryProject(projectToView);
+    setShowMonthSelector(false);
+    setProjectToView(null);
+  };
+
   const handleCancelMonth = () => {
     setShowMonthSelector(false);
     setProjectToView(null);
@@ -118,6 +126,10 @@ export function AdminProjects() {
   if (selectedProject) {
     const initialMonth = selectedProject.initialMonth || new Date().toISOString().slice(0, 7);
     return <ProjectView projectId={selectedProject} onBack={() => setSelectedProject(null)} initialMonth={initialMonth} />;
+  }
+
+  if (historyProject) {
+    return <ProjectHistory projectId={historyProject} project={historyProject} onBack={() => setHistoryProject(null)} />;
   }
 
   if (showMonthSelector) {
@@ -146,6 +158,12 @@ export function AdminProjects() {
                 className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-gray-400 hover:bg-white/10 transition-colors"
               >
                 Cancel
+              </button>
+              <button
+                onClick={handleViewHistory}
+                className="px-4 py-2 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+              >
+                View Project History
               </button>
               <button
                 onClick={handleConfirmMonth}
