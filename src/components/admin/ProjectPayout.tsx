@@ -185,12 +185,20 @@ export function ProjectPayout({ projectId, onBack, project, investors: projectIn
       
       // Step 1: Call the Supabase RPC to insert/update revenue
       const expensesAmount = parseFloat(expenses) || 0;
+      const severanceTaxAmount = calculations.severanceTax || 0;
+      const productionAmount = parseFloat(totalBarrels) || 0; // total barrels produced
+      const costPerBoAmount = parseFloat(pricePerBarrel) || 0; // price per barrel
+
       const revenueResult = await supabase
         .rpc('insert_or_update_revenue', {
-          input_month: parseInt(month),
           input_project_id: projectId,
+          input_month: parseInt(month),
+          input_year: parseInt(year),
           input_total_revenue: calculations.investorPayout - expensesAmount, // Investor Payout minus expenses
-          input_year: parseInt(year)
+          input_expenses: expensesAmount,
+          input_st: severanceTaxAmount,
+          input_production: productionAmount,
+          input_cost_per_bo: costPerBoAmount,
         });
       
       if (revenueResult.error) {
