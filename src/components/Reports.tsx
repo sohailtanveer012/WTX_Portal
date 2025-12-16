@@ -8,6 +8,7 @@ type PortfolioRow = {
   investor_name?: string;
   investor_email?: string;
   project_name?: string;
+  project_id?: string | number;
   invested_amount?: number;
   investment_amount?: number;
   payout_amount?: number;
@@ -16,6 +17,12 @@ type PortfolioRow = {
   payout_created_at?: string;
   created_at?: string;
   percentage_owned?: number;
+  total_barrels?: number;
+  project_total_revenue?: number;
+  project_expenses?: number;
+  project_st?: number;
+  project_production?: number;
+  cost_per_bo?: number;
   [key: string]: unknown;
 };
 
@@ -69,9 +76,23 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
     }, {});
   }, [portfolio]);
 
-  // Generate monthly distribution statements data
+  // Generate monthly distribution statements data with detailed breakdown
   const monthlyDistributions = useMemo(() => {
-    const monthlyMap = new Map<string, { month: string; year: number; total: number; projects: Record<string, number> }>();
+    const monthlyMap = new Map<string, { 
+      month: string; 
+      year: number; 
+      total: number; 
+      projects: Record<string, {
+        amount: number;
+        total_barrels?: number;
+        project_total_revenue?: number;
+        project_expenses?: number;
+        project_st?: number;
+        project_production?: number;
+        cost_per_bo?: number;
+        percentage_owned?: number;
+      }>
+    }>();
     
     portfolio.forEach(item => {
       if (item.payout_amount && item.payout_month && item.payout_year) {
@@ -88,8 +109,23 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
         }
         
         const entry = monthlyMap.get(key)!;
-        entry.total += Number(item.payout_amount || 0);
-        entry.projects[projectName] = (entry.projects[projectName] || 0) + Number(item.payout_amount || 0);
+        const payoutAmount = Number(item.payout_amount || 0);
+        entry.total += payoutAmount;
+        
+        // Store detailed project data for this month
+        if (!entry.projects[projectName]) {
+          entry.projects[projectName] = {
+            amount: 0,
+            total_barrels: item.total_barrels ? Number(item.total_barrels) : undefined,
+            project_total_revenue: item.project_total_revenue ? Number(item.project_total_revenue) : undefined,
+            project_expenses: item.project_expenses ? Number(item.project_expenses) : undefined,
+            project_st: item.project_st ? Number(item.project_st) : undefined,
+            project_production: item.project_production ? Number(item.project_production) : undefined,
+            cost_per_bo: item.cost_per_bo ? Number(item.cost_per_bo) : undefined,
+            percentage_owned: item.percentage_owned ? Number(item.percentage_owned) : undefined,
+          };
+        }
+        entry.projects[projectName].amount += payoutAmount;
       }
     });
 
@@ -163,8 +199,22 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
       .slice(-24); // Last 24 months
   }, [portfolio]);
 
-  // Generate PDF for monthly distribution statement
-  const generateDistributionPDF = (month: string, year: number, total: number, projects: Record<string, number>) => {
+  // Generate PDF for monthly distribution statement with detailed breakdown
+  const generateDistributionPDF = (
+    month: string, 
+    year: number, 
+    total: number, 
+    projects: Record<string, {
+      amount: number;
+      total_barrels?: number;
+      project_total_revenue?: number;
+      project_expenses?: number;
+      project_st?: number;
+      project_production?: number;
+      cost_per_bo?: number;
+      percentage_owned?: number;
+    }>
+  ) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
@@ -177,15 +227,24 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
         <head>
           <title>Distribution Statement - ${month} ${year}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 40px; }
-            h1 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }
+            body { font-family: Arial, sans-serif; padding: 40px; line-height: 1.6; }
+            h1 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px; margin-bottom: 20px; }
+            h2 { color: #0066cc; margin-top: 30px; margin-bottom: 15px; font-size: 1.3em; border-bottom: 1px solid #0066cc; padding-bottom: 5px; }
             .header { margin-bottom: 30px; }
-            .info { margin: 10px 0; }
-            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-            th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-            th { background-color: #0066cc; color: white; }
-            .total { font-weight: bold; font-size: 1.2em; margin-top: 20px; }
-            .footer { margin-top: 40px; font-size: 0.9em; color: #666; }
+            .info { margin: 8px 0; }
+            .section { margin: 25px 0; }
+            table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+            th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+            th { background-color: #0066cc; color: white; font-weight: bold; }
+            tr:nth-child(even) { background-color: #f9f9f9; }
+            .calculation-row { background-color: #f0f8ff; }
+            .calculation-label { font-weight: bold; color: #555; width: 60%; }
+            .calculation-value { text-align: right; font-weight: bold; }
+            .total { font-weight: bold; font-size: 1.2em; margin-top: 20px; padding: 15px; background-color: #e8f4f8; border-radius: 5px; }
+            .footer { margin-top: 40px; font-size: 0.9em; color: #666; border-top: 1px solid #ddd; padding-top: 20px; }
+            .project-breakdown { margin-bottom: 30px; padding: 20px; background-color: #f9f9f9; border-radius: 5px; border: 1px solid #ddd; }
+            .project-title { color: #0066cc; margin-top: 0; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }
+            .formula { background-color: #fff9e6; padding: 10px; border-left: 4px solid #ffa500; margin: 10px 0; font-style: italic; }
           </style>
         </head>
         <body>
@@ -194,27 +253,158 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
             <div class="info"><strong>Period:</strong> ${month} ${year}</div>
             <div class="info"><strong>Investor:</strong> ${investorName}</div>
             <div class="info"><strong>Email:</strong> ${investorEmail}</div>
+            <div class="info"><strong>Statement Date:</strong> ${new Date().toLocaleDateString()}</div>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Project</th>
-                <th>Distribution Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${Object.entries(projects).map(([project, amount]) => `
+
+          <div class="section">
+            <h2>Distribution Summary</h2>
+            <table>
+              <thead>
                 <tr>
-                  <td>${project}</td>
-                  <td>$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <th>Project</th>
+                  <th style="text-align: right;">Distribution Amount</th>
                 </tr>
-              `).join('')}
-            </tbody>
-          </table>
-          <div class="total">Total Distribution: $${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              </thead>
+              <tbody>
+                ${Object.entries(projects).map(([project, data]) => `
+                  <tr>
+                    <td><strong>${project}</strong></td>
+                    <td style="text-align: right; font-weight: bold; color: #0066cc;">$${data.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  </tr>
+                `).join('')}
+                <tr style="background-color: #e8f4f8; font-weight: bold;">
+                  <td><strong>Total Distribution</strong></td>
+                  <td style="text-align: right;">$${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <h2>Detailed Calculation Breakdown by Project</h2>
+            ${Object.entries(projects).map(([projectName, projectData]) => {
+              // Calculate derived values
+              const grossRevenue = projectData.cost_per_bo && projectData.project_production 
+                ? projectData.cost_per_bo * projectData.project_production 
+                : undefined;
+              const netRevenue = projectData.project_st && grossRevenue 
+                ? grossRevenue - projectData.project_st 
+                : undefined;
+              const investorPayoutPool = projectData.project_total_revenue || undefined;
+              const netInvestorPayout = projectData.project_expenses && investorPayoutPool
+                ? investorPayoutPool - projectData.project_expenses
+                : investorPayoutPool;
+              const sharePercentage = netInvestorPayout && projectData.amount
+                ? (projectData.amount / netInvestorPayout) * 100
+                : undefined;
+
+              return `
+                <div class="project-breakdown">
+                  <h3 class="project-title">${projectName}</h3>
+                  
+                  <div style="margin-top: 15px;">
+                    <h4 style="color: #555; margin-bottom: 10px;">Project Revenue Calculation</h4>
+                    <table style="width: 100%; margin: 10px 0;">
+                      ${projectData.project_production !== undefined ? `
+                      <tr class="calculation-row">
+                        <td class="calculation-label">Total Barrels Produced:</td>
+                        <td class="calculation-value">${projectData.project_production.toLocaleString('en-US', { maximumFractionDigits: 0 })} BBL</td>
+                      </tr>
+                      ` : ''}
+                      ${projectData.cost_per_bo !== undefined ? `
+                      <tr class="calculation-row">
+                        <td class="calculation-label">Price per Barrel:</td>
+                        <td class="calculation-value">$${projectData.cost_per_bo.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      ` : ''}
+                      ${grossRevenue !== undefined ? `
+                      <tr class="calculation-row">
+                        <td class="calculation-label">Gross Revenue (Barrels × Price):</td>
+                        <td class="calculation-value">$${grossRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      ` : ''}
+                      ${projectData.project_st !== undefined ? `
+                      <tr class="calculation-row" style="background-color: #fff0f0;">
+                        <td class="calculation-label">Severance Tax (4.6%):</td>
+                        <td class="calculation-value" style="color: #dc3545;">-$${projectData.project_st.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      ` : ''}
+                      ${netRevenue !== undefined ? `
+                      <tr class="calculation-row">
+                        <td class="calculation-label">Net Revenue (Gross - Severance Tax):</td>
+                        <td class="calculation-value">$${netRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      ` : ''}
+                      ${investorPayoutPool !== undefined ? `
+                      <tr class="calculation-row" style="background-color: #f0fff0;">
+                        <td class="calculation-label">Investor Payout Pool (75% of Net Revenue):</td>
+                        <td class="calculation-value" style="color: #28a745;">$${investorPayoutPool.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      ` : ''}
+                      ${projectData.project_expenses !== undefined && projectData.project_expenses > 0 ? `
+                      <tr class="calculation-row" style="background-color: #fff0f0;">
+                        <td class="calculation-label">Operating Expenses:</td>
+                        <td class="calculation-value" style="color: #dc3545;">-$${projectData.project_expenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      ` : ''}
+                      ${netInvestorPayout !== undefined ? `
+                      <tr class="calculation-row" style="background-color: #e8f4f8; font-weight: bold;">
+                        <td class="calculation-label">Net Investor Payout (After Expenses):</td>
+                        <td class="calculation-value" style="color: #0066cc; font-size: 1.1em;">$${netInvestorPayout.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      ` : ''}
+                    </table>
+                  </div>
+                  
+                  <div style="margin-top: 20px;">
+                    <h4 style="color: #555; margin-bottom: 10px;">Your Distribution Calculation</h4>
+                    <table style="width: 100%; margin: 10px 0;">
+                      ${projectData.percentage_owned !== undefined ? `
+                      <tr>
+                        <td class="calculation-label">Your Ownership Percentage:</td>
+                        <td class="calculation-value">${projectData.percentage_owned.toFixed(2)}%</td>
+                      </tr>
+                      ` : ''}
+                      ${projectData.total_barrels !== undefined ? `
+                      <tr>
+                        <td class="calculation-label">Your Total Barrels (Barrels Allocated to You):</td>
+                        <td class="calculation-value">${projectData.total_barrels.toLocaleString('en-US', { maximumFractionDigits: 2 })} BBL</td>
+                      </tr>
+                      ` : ''}
+                      ${sharePercentage !== undefined ? `
+                      <tr>
+                        <td class="calculation-label">Your Share Percentage:</td>
+                        <td class="calculation-value">${sharePercentage.toFixed(2)}%</td>
+                      </tr>
+                      ` : ''}
+                      <tr style="background-color: #e8f4f8; font-weight: bold;">
+                        <td class="calculation-label">Your Distribution Amount:</td>
+                        <td class="calculation-value" style="color: #0066cc; font-size: 1.2em;">$${projectData.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      ${netInvestorPayout !== undefined && sharePercentage !== undefined ? `
+                      <tr style="font-style: italic; color: #666;">
+                        <td colspan="2" style="padding-top: 10px; padding-left: 8px;">
+                          <div class="formula">
+                            Calculation: $${netInvestorPayout.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} × ${sharePercentage.toFixed(2)}% = $${projectData.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                        </td>
+                      </tr>
+                      ` : ''}
+                    </table>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <div class="total">
+            <strong>Total Distribution for ${month} ${year}: $${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+          </div>
+
           <div class="footer">
-            <p>Generated on ${new Date().toLocaleDateString()}</p>
-            <p>This is an automated statement. Please contact support for any questions.</p>
+            <p><strong>Generated on:</strong> ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
+            <p><strong>Disclaimer:</strong> This is an automated statement generated from our records. The distribution amounts are calculated based on production data, ownership percentages, and the methodology outlined above. If you have any questions or notice any discrepancies, please contact our support team immediately.</p>
+            <p style="margin-top: 15px;"><strong>Contact:</strong> For questions regarding this statement, please contact your account representative or support@wtxoil.com</p>
           </div>
         </body>
       </html>
