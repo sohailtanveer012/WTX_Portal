@@ -112,36 +112,20 @@ export function ProjectPayout({ projectId, onBack, project, investors: projectIn
       // Subtract expenses from investor payout
       const netInvestorPayout = investorPayout - expensesAmount;
 
-      // Step 2: Calculate each investor's base barrels and total barrels
-      const investorBarrels = investors.map(investor => {
-        const baseBarrels = investor.customBaseBarrels !== undefined 
-          ? investor.customBaseBarrels 
-          : defaultBarrels;
-        const totalBarrelsForInvestor = baseBarrels * investor.ownership;
+      // Step 2: Calculate each investor's barrels and payout based on ownership percentage
+      // This matches the backend calculation: payout_amount = total_revenue × (percentage_owned / 100)
+      const investorDistributions = investors.map(investor => {
+        // Calculate investor's barrels based on ownership
+        const totalBarrelsForInvestor = defaultBarrels * investor.ownership;
+        // Calculate payout based on ownership percentage of Net Investor Payout
+        const amount = netInvestorPayout * investor.ownership;
         return {
           id: investor.id,
           name: investor.name,
           email: investor.email,
-          baseBarrels,
-          totalBarrelsForInvestor,
-        };
-      });
-
-      // Step 3: Calculate sum of all investors' total barrels
-      const sumTotalBarrels = investorBarrels.reduce((sum, inv) => sum + inv.totalBarrelsForInvestor, 0);
-
-      // Step 4: Calculate each investor's share and payout (based on share, which is affected by custom base barrels)
-      const investorDistributions = investorBarrels.map(inv => {
-        const share = sumTotalBarrels > 0 ? inv.totalBarrelsForInvestor / sumTotalBarrels : 0;
-        // Calculate payout based on share (affected by custom base barrels), not ownership
-        const amount = netInvestorPayout * share;
-        return {
-          id: inv.id,
-          name: inv.name,
-          email: inv.email,
-          baseBarrels: inv.baseBarrels,
-          totalBarrels: inv.totalBarrelsForInvestor,
-          share: share * 100, // Convert to percentage for display only
+          baseBarrels: defaultBarrels,
+          totalBarrels: totalBarrelsForInvestor,
+          share: investor.ownership * 100, // Ownership percentage for display
           amount
         };
       });

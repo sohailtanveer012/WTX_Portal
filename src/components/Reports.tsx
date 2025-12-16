@@ -266,16 +266,47 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
                 </tr>
               </thead>
               <tbody>
-                ${Object.entries(projects).map(([project, data]) => `
-                  <tr>
-                    <td><strong>${project}</strong></td>
-                    <td style="text-align: right; font-weight: bold; color: #0066cc;">$${data.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  </tr>
-                `).join('')}
-                <tr style="background-color: #e8f4f8; font-weight: bold;">
-                  <td><strong>Total Distribution</strong></td>
-                  <td style="text-align: right;">$${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                </tr>
+                ${(() => {
+                  const rows: string[] = [];
+                  let recalculatedTotal = 0;
+                  Object.entries(projects).forEach(([project, data]) => {
+                    // Calculate from raw production data
+                    const grossRevenue = data.cost_per_bo && data.project_production 
+                      ? data.cost_per_bo * data.project_production 
+                      : undefined;
+                    const severanceTax = data.project_st ?? (grossRevenue ? grossRevenue * 0.046 : undefined);
+                    const netRevenue = grossRevenue && severanceTax !== undefined
+                      ? grossRevenue - severanceTax 
+                      : undefined;
+                    // Investor Payout Pool = 75% of Net Revenue
+                    const investorPayoutPool = netRevenue !== undefined 
+                      ? netRevenue * 0.75 
+                      : undefined;
+                    // Net Investor Payout = Investor Payout Pool - Expenses
+                    const expensesAmt = data.project_expenses ?? 0;
+                    const netInvestorPayout = investorPayoutPool !== undefined
+                      ? investorPayoutPool - expensesAmt
+                      : data.project_total_revenue;
+                    // Distribution = Net Investor Payout × Ownership %
+                    const distributionAmount = netInvestorPayout !== undefined && data.percentage_owned !== undefined
+                      ? netInvestorPayout * (data.percentage_owned / 100)
+                      : data.amount;
+                    recalculatedTotal += distributionAmount;
+                    rows.push(`
+                      <tr>
+                        <td><strong>${project}</strong></td>
+                        <td style="text-align: right; font-weight: bold; color: #0066cc;">$${distributionAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                    `);
+                  });
+                  rows.push(`
+                    <tr style="background-color: #e8f4f8; font-weight: bold;">
+                      <td><strong>Total Distribution</strong></td>
+                      <td style="text-align: right;">$${recalculatedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  `);
+                  return rows.join('');
+                })()}
               </tbody>
             </table>
           </div>
@@ -283,20 +314,30 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
           <div class="section">
             <h2>Detailed Calculation Breakdown by Project</h2>
             ${Object.entries(projects).map(([projectName, projectData]) => {
-              // Calculate derived values
+              // Calculate derived values from raw production data
               const grossRevenue = projectData.cost_per_bo && projectData.project_production 
                 ? projectData.cost_per_bo * projectData.project_production 
                 : undefined;
-              const netRevenue = projectData.project_st && grossRevenue 
-                ? grossRevenue - projectData.project_st 
+              const severanceTax = projectData.project_st ?? (grossRevenue ? grossRevenue * 0.046 : undefined);
+              const netRevenue = grossRevenue && severanceTax !== undefined
+                ? grossRevenue - severanceTax 
                 : undefined;
-              const investorPayoutPool = projectData.project_total_revenue || undefined;
-              const netInvestorPayout = projectData.project_expenses && investorPayoutPool
-                ? investorPayoutPool - projectData.project_expenses
-                : investorPayoutPool;
-              const sharePercentage = netInvestorPayout && projectData.amount
-                ? (projectData.amount / netInvestorPayout) * 100
+              // Investor Payout Pool = 75% of Net Revenue
+              const investorPayoutPool = netRevenue !== undefined 
+                ? netRevenue * 0.75 
                 : undefined;
+              // Net Investor Payout = Investor Payout Pool - Expenses
+              const expensesAmount = projectData.project_expenses ?? 0;
+              const netInvestorPayout = investorPayoutPool !== undefined
+                ? investorPayoutPool - expensesAmount
+                : projectData.project_total_revenue; // Fallback to API value if we can't calculate
+              const sharePercentage = projectData.percentage_owned !== undefined
+                ? projectData.percentage_owned
+                : undefined;
+              // Distribution = Net Investor Payout × Ownership %
+              const distributionAmount = netInvestorPayout !== undefined && sharePercentage !== undefined
+                ? netInvestorPayout * (sharePercentage / 100)
+                : projectData.amount;
 
               return `
                 <div class="project-breakdown">
@@ -323,10 +364,10 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
                         <td class="calculation-value">$${grossRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                       ` : ''}
-                      ${projectData.project_st !== undefined ? `
+                      ${severanceTax !== undefined ? `
                       <tr class="calculation-row" style="background-color: #fff0f0;">
                         <td class="calculation-label">Severance Tax (4.6%):</td>
-                        <td class="calculation-value" style="color: #dc3545;">-$${projectData.project_st.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td class="calculation-value" style="color: #dc3545;">-$${severanceTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                       ` : ''}
                       ${netRevenue !== undefined ? `
@@ -341,10 +382,10 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
                         <td class="calculation-value" style="color: #28a745;">$${investorPayoutPool.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                       ` : ''}
-                      ${projectData.project_expenses !== undefined && projectData.project_expenses > 0 ? `
+                      ${expensesAmount > 0 ? `
                       <tr class="calculation-row" style="background-color: #fff0f0;">
                         <td class="calculation-label">Operating Expenses:</td>
-                        <td class="calculation-value" style="color: #dc3545;">-$${projectData.project_expenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td class="calculation-value" style="color: #dc3545;">-$${expensesAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                       ` : ''}
                       ${netInvestorPayout !== undefined ? `
@@ -379,13 +420,17 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
                       ` : ''}
                       <tr style="background-color: #e8f4f8; font-weight: bold;">
                         <td class="calculation-label">Your Distribution Amount:</td>
-                        <td class="calculation-value" style="color: #0066cc; font-size: 1.2em;">$${projectData.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td class="calculation-value" style="color: #0066cc; font-size: 1.2em;">$${distributionAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
-                      ${netInvestorPayout !== undefined && sharePercentage !== undefined ? `
+                      ${netInvestorPayout !== undefined && sharePercentage !== undefined && investorPayoutPool !== undefined ? `
                       <tr style="font-style: italic; color: #666;">
                         <td colspan="2" style="padding-top: 10px; padding-left: 8px;">
                           <div class="formula">
-                            Calculation: $${netInvestorPayout.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} × ${sharePercentage.toFixed(2)}% = $${projectData.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <strong>Calculation Steps:</strong><br/>
+                            1. Investor Payout Pool (75% of Net Revenue): $${investorPayoutPool.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<br/>
+                            ${expensesAmount > 0 ? `2. Less Expenses: -$${expensesAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<br/>
+                            3. Net Investor Payout: $${netInvestorPayout.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<br/>
+                            4. Your Distribution: $${netInvestorPayout.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} × ${sharePercentage.toFixed(2)}% = <strong>$${distributionAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>` : `2. Your Distribution: $${netInvestorPayout.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} × ${sharePercentage.toFixed(2)}% = <strong>$${distributionAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>`}
                           </div>
                         </td>
                       </tr>
