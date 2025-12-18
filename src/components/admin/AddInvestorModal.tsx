@@ -6,6 +6,8 @@ interface AddInvestorModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  preselectedProjectId?: string;
+  preselectedProjectName?: string;
 }
 
 interface Project {
@@ -13,7 +15,7 @@ interface Project {
   project_name: string;
 }
 
-export function AddInvestorModal({ isOpen, onClose, onSuccess }: AddInvestorModalProps) {
+export function AddInvestorModal({ isOpen, onClose, onSuccess, preselectedProjectId, preselectedProjectName }: AddInvestorModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -42,7 +44,7 @@ export function AddInvestorModal({ isOpen, onClose, onSuccess }: AddInvestorModa
 
   useEffect(() => {
     if (isOpen) {
-      // Reset form when modal opens
+      // Reset form when modal opens, pre-fill project if provided
       setFormData({
         name: '',
         email: '',
@@ -55,15 +57,18 @@ export function AddInvestorModal({ isOpen, onClose, onSuccess }: AddInvestorModa
         routingNo: '',
         accountNo: '',
         accountType: '',
-        projectId: '',
+        projectId: preselectedProjectId || '',
         investmentAmount: '',
         ownershipPercentage: '',
       });
       setError('');
       setSuccess(false);
-      loadProjects();
+      // Only load projects if no preselected project
+      if (!preselectedProjectId) {
+        loadProjects();
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, preselectedProjectId]);
 
   const loadProjects = async () => {
     setLoadingProjects(true);
@@ -393,7 +398,11 @@ export function AddInvestorModal({ isOpen, onClose, onSuccess }: AddInvestorModa
                   </label>
                   <div className="relative">
                     <Briefcase className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                    {loadingProjects ? (
+                    {preselectedProjectId && preselectedProjectName ? (
+                      <div className="pl-10 pr-4 py-2 w-full bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-400 font-medium">
+                        {preselectedProjectName}
+                      </div>
+                    ) : loadingProjects ? (
                       <div className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-gray-400">
                         Loading projects...
                       </div>
