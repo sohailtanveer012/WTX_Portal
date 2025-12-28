@@ -992,3 +992,17 @@ export async function updateInvestorPersonalInfo(
     return { success: false, error: errorMessage };
   }
 }
+// Update project name (Admin)
+export async function adminUpdateProjectName(projectId: string | number, newName: string) {
+  const { data, error } = await supabase.rpc('admin_update_project_name', {
+    project_id_input: projectId,
+    new_project_name_input: newName
+  });
+
+  if (error) {
+    console.error('Error updating project name:', error);
+    throw error;
+  }
+
+  return data;
+}

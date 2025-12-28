@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Users, DollarSign, TrendingUp, TrendingDown, Droplets, Calendar, MapPin, Calculator, FileText, Download, UserPlus } from 'lucide-react';
+import { ArrowLeft, Users, DollarSign, TrendingUp, TrendingDown, Droplets, Calendar, MapPin, Calculator, FileText, Download, UserPlus, Edit2, Check, X, Loader2 } from 'lucide-react';
 import { ProjectPayout } from './ProjectPayout';
 import { ProjectFundingView } from './ProjectFundingView';
 import { ProjectHistory } from './ProjectHistory';
 import { AddInvestorModal } from './AddInvestorModal';
-import { fetchProjectInvestorsByMonth, fetchInvestorsByProject, fetchProjectRevenueByMonth } from '../../api/services';
+import { fetchProjectInvestorsByMonth, fetchInvestorsByProject, fetchProjectRevenueByMonth, adminUpdateProjectName } from '../../api/services';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 interface ProjectViewProps {
-  projectId: string | Record<string, unknown>;
+  projectId: any; // Using any for simplicity as it can be a string or complex project object
   onBack: () => void;
   initialMonth?: string;
 }
@@ -42,10 +42,50 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
   const [previousMonthRevenue, setPreviousMonthRevenue] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showAddInvestorModal, setShowAddInvestorModal] = useState(false);
-  
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState('');
+  const [isUpdatingName, setIsUpdatingName] = useState(false);
+
+  // Initialize editedName when project data is available
+  useEffect(() => {
+    if (typeof projectId === 'object') {
+      const name = projectId.project_name || projectId.name || projectId.NAME || projectId.PROJECT_NAME || '';
+      setEditedName(name as string);
+    }
+  }, [projectId]);
+
+  const handleUpdateName = async () => {
+    if (!editedName.trim()) return;
+
+    const actualProjectId = typeof projectId === 'object'
+      ? (projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID)
+      : projectId;
+
+    if (!actualProjectId) return;
+
+    setIsUpdatingName(true);
+    try {
+      await adminUpdateProjectName(String(actualProjectId), editedName);
+      // Update local state if possible, though ProjectView usually relies on the passed projectId object
+      // which might not be locally mutable. We might need to inform the parent or use a reload.
+      // For now, we'll toggle off editing. In a real app, we'd update the project state.
+      // Since 'project' variable is derived from 'projectId' prop, we should ideally trigger a refresh in parent.
+      // But we'll at least update the local UI expectation.
+      setIsEditingName(false);
+      // Optional: window.location.reload() or a more sophisticated state update
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to update project name:', error);
+      alert('Failed to update project name. Please try again.');
+    } finally {
+      setIsUpdatingName(false);
+    }
+  };
+
+
   // Calculate total payout amount from investors
   const totalPayoutAmount = projectInvestors.reduce((sum, investor) => sum + (investor.payout_amount || 0), 0);
-  
+
   // Calculate percentage growth/decline
   const getGrowthPercentage = () => {
     if (previousMonthRevenue === null || monthlyRevenue === null || previousMonthRevenue === 0) {
@@ -60,32 +100,32 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
       if (typeof projectId === 'object') {
         // Try different possible field names for project ID
         const actualProjectId = projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID;
-        
+
         console.log('Extracted actualProjectId:', actualProjectId);
         console.log('Type of actualProjectId:', typeof actualProjectId);
-        
+
         if (actualProjectId) {
           console.log('Fetching investors for project ID:', actualProjectId, 'month:', selectedMonth);
-          
+
           // Use the project ID as-is (can be UUID string or number)
           const projectIdToUse = String(actualProjectId);
-          
+
           setIsLoadingInvestors(true);
           try {
             // First, get base investor data (for payout calculation)
             const baseInvestors = await fetchInvestorsByProject(projectIdToUse);
             setBaseProjectInvestors(baseInvestors);
-            
+
             // Then, try to get month-specific data (with payouts if they exist)
             const monthInvestors = await fetchProjectInvestorsByMonth(projectIdToUse, selectedMonth);
-            
+
             // Only show month-specific data (if it exists), don't show anything if no data for that month
             setProjectInvestors(monthInvestors);
             setCurrentInvestorPage(1); // Reset to first page when new data loads
-            
+
             console.log('Base investors:', baseInvestors);
             console.log('Month investors:', monthInvestors);
-            
+
             if (monthInvestors.length > 0) {
               console.log('Sample investor data structure:', monthInvestors[0]);
               console.log('Available fields in investor:', Object.keys(monthInvestors[0]));
@@ -111,19 +151,19 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
     const fetchRevenue = async () => {
       if (typeof projectId === 'object') {
         const actualProjectId = projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID;
-        
+
         if (actualProjectId) {
           try {
             // Fetch current month revenue
             const revenue = await fetchProjectRevenueByMonth(String(actualProjectId), selectedMonth);
             setMonthlyRevenue(revenue);
-            
+
             // Calculate previous month
             const [year, month] = selectedMonth.split('-');
             const currentDate = new Date(parseInt(year), parseInt(month) - 1);
             currentDate.setMonth(currentDate.getMonth() - 1);
             const previousMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-            
+
             // Fetch previous month revenue
             const prevRevenue = await fetchProjectRevenueByMonth(String(actualProjectId), previousMonth);
             setPreviousMonthRevenue(prevRevenue);
@@ -177,24 +217,24 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
   // Use passed project data - no mock data fallback
   console.log('ProjectId object received:', projectId);
   console.log('ProjectId keys:', typeof projectId === 'object' ? Object.keys(projectId) : 'Not an object');
-  
+
   const project = typeof projectId === 'object' ? {
-      id: projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID,
-      name: projectId.project_name || projectId.name || projectId.NAME || projectId.PROJECT_NAME,
-      location: projectId.location || projectId.LOCATION,
-      status: projectId.status || projectId.STATUS,
-      investors: projectId.total_investors || projectId.investor_count || projectId.TOTAL_INVESTORS || 0,
-      totalInvestment: projectId.total_invested_amount || projectId.total_investment ? `$${(projectId.total_invested_amount || projectId.total_investment).toLocaleString()}` : 'N/A',
-      monthlyRevenue: projectId.monthly_revenue ? `$${projectId.monthly_revenue.toLocaleString()}` : 'N/A',
-      completionDate: projectId.completion_date || projectId.COMPLETION_DATE,
-      description: projectId.description || projectId.DESCRIPTION || 'No description available',
-      startDate: projectId.start_date || projectId.START_DATE,
-      operatingCosts: projectId.operating_costs ? `$${projectId.operating_costs.toLocaleString()}` : 'N/A',
-      productionRate: projectId.production_rate || 'N/A',
-      recoveryRate: projectId.recovery_rate || 'N/A',
-      wellCount: projectId.well_count || 0,
-      hasInvestorGroups: true,
-    } : null;
+    id: projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID,
+    name: projectId.project_name || projectId.name || projectId.NAME || projectId.PROJECT_NAME,
+    location: projectId.location || projectId.LOCATION,
+    status: projectId.status || projectId.STATUS,
+    investors: projectId.total_investors || projectId.investor_count || projectId.TOTAL_INVESTORS || 0,
+    totalInvestment: projectId.total_invested_amount || projectId.total_investment ? `$${(projectId.total_invested_amount || projectId.total_investment).toLocaleString()}` : 'N/A',
+    monthlyRevenue: projectId.monthly_revenue ? `$${projectId.monthly_revenue.toLocaleString()}` : 'N/A',
+    completionDate: projectId.completion_date || projectId.COMPLETION_DATE,
+    description: projectId.description || projectId.DESCRIPTION || 'No description available',
+    startDate: projectId.start_date || projectId.START_DATE,
+    operatingCosts: projectId.operating_costs ? `$${projectId.operating_costs.toLocaleString()}` : 'N/A',
+    productionRate: projectId.production_rate || 'N/A',
+    recoveryRate: projectId.recovery_rate || 'N/A',
+    wellCount: projectId.well_count || 0,
+    hasInvestorGroups: true,
+  } : null;
 
   // Safety check for project data
   if (!project) {
@@ -211,7 +251,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
     console.log('ProjectView - Number of investors:', investorsToPass.length);
     console.log('ProjectView - baseProjectInvestors:', baseProjectInvestors);
     console.log('ProjectView - projectInvestors:', projectInvestors);
-    
+
     return (
       <ProjectPayout
         projectId={typeof projectId === 'string' ? projectId : projectId?.project_id || projectId?.id || ''}
@@ -243,7 +283,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
   }
 
   const growthPercent = getGrowthPercentage();
-  
+
   // Helper to get previous month name
   const getPreviousMonthName = () => {
     const [year, month] = selectedMonth.split('-');
@@ -261,7 +301,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
     },
     {
       label: `Revenue Growth compared to ${getPreviousMonthName()}`,
-      value: growthPercent !== null 
+      value: growthPercent !== null
         ? `${growthPercent >= 0 ? '+' : ''}${growthPercent.toFixed(1)}%`
         : 'N/A',
       icon: growthPercent !== null && growthPercent >= 0 ? TrendingUp : TrendingDown,
@@ -285,9 +325,9 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
 
   // Reports mock data removed - would need real API integration
   const reports: {
-    monthly: never[];
-    initial: never[];
-    compliance: never[];
+    monthly: any[];
+    initial: any[];
+    compliance: any[];
   } = {
     monthly: [],
     initial: [],
@@ -307,12 +347,57 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
               <ArrowLeft className="h-6 w-6" />
             </button>
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold text-white">
-                {project.name} ({(() => {
-                  const [year, month] = selectedMonth.split('-');
-                  return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-                })()})
-              </h1>
+              <div className="flex items-center space-x-2">
+                {isEditingName ? (
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      value={editedName}
+                      onChange={(e) => setEditedName(e.target.value)}
+                      className="bg-white/5 border border-white/20 rounded-lg px-2 py-0.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-2xl font-bold"
+                      autoFocus
+                    />
+                    <button
+                      onClick={handleUpdateName}
+                      disabled={isUpdatingName}
+                      className="p-1 rounded-lg bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors disabled:opacity-50"
+                      title="Save Name"
+                    >
+                      {isUpdatingName ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsEditingName(false);
+                        setEditedName(project.name as string);
+                      }}
+                      disabled={isUpdatingName}
+                      className="p-1 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                      title="Cancel"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <h1 className="text-2xl font-bold text-white truncate max-w-[400px]">
+                      {project.name}
+                    </h1>
+                    <button
+                      onClick={() => setIsEditingName(true)}
+                      className="p-1.5 rounded-lg bg-white/5 text-gray-400 hover:text-gray-300 hover:bg-white/10 transition-colors"
+                      title="Edit Project Name"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+                <span className="text-2xl font-bold text-white whitespace-nowrap">
+                  ({(() => {
+                    const [year, month] = selectedMonth.split('-');
+                    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                  })()})
+                </span>
+              </div>
               <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-gray-400">
                 <span className="flex items-center">
                   <MapPin className="h-4 w-4 mr-1" />
@@ -322,11 +407,10 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                   <Calendar className="h-4 w-4 mr-1" />
                   Started {new Date(project.startDate).toLocaleDateString()}
                 </span>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  project.status === 'Active'
-                    ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                    : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                }`}>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${project.status === 'Active'
+                  ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                  : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                  }`}>
                   {project.status}
                 </span>
               </div>
@@ -380,7 +464,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                   })()} Revenue
                 </p>
                 <p className="text-2xl font-semibold text-white mt-2">
-                  {monthlyRevenue !== null 
+                  {monthlyRevenue !== null
                     ? `$${monthlyRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                     : 'N/A'}
                 </p>
@@ -388,7 +472,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
               <TrendingUp className="h-8 w-8 text-green-400 opacity-50" />
             </div>
           </div>
-          
+
           <div className="bg-card-gradient rounded-2xl p-6 hover-neon-glow border border-blue-500/20">
             <div className="flex items-center justify-between">
               <div>
@@ -445,8 +529,8 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                   <AreaChart data={revenueSeries}>
                     <defs>
                       <linearGradient id="wellRevenue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10B981" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#10B981" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="label" stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)' }} tickMargin={8} />
@@ -500,7 +584,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                 className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-gray-400"
                 title="Select month to view investor payouts"
               />
-            
+
               <select
                 value={selectedGroup}
                 onChange={(e) => setSelectedGroup(e.target.value)}
@@ -512,21 +596,19 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
               <div className="flex rounded-xl overflow-hidden border border-[var(--border-color)]">
                 <button
                   onClick={() => setSelectedInvestorView('list')}
-                  className={`px-4 py-2 text-sm ${
-                    selectedInvestorView === 'list'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-card-gradient text-gray-400 hover:text-gray-300'
-                  }`}
+                  className={`px-4 py-2 text-sm ${selectedInvestorView === 'list'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-card-gradient text-gray-400 hover:text-gray-300'
+                    }`}
                 >
                   List View
                 </button>
                 <button
                   onClick={() => setSelectedInvestorView('grid')}
-                  className={`px-4 py-2 text-sm ${
-                    selectedInvestorView === 'grid'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-card-gradient text-gray-400 hover:text-gray-300'
-                  }`}
+                  className={`px-4 py-2 text-sm ${selectedInvestorView === 'grid'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-card-gradient text-gray-400 hover:text-gray-300'
+                    }`}
                 >
                   Grid View
                 </button>
@@ -545,18 +627,18 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                 const paginatedInvestors = projectInvestors.slice(startIndex, endIndex);
 
                 return (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investor</th>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-white/10">
+                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investor</th>
                           <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Email</th>
                           <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Percentage</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investment</th>
+                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investment</th>
                           <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Payout Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
+                        </tr>
+                      </thead>
+                      <tbody>
                         {isLoadingInvestors ? (
                           <tr>
                             <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
@@ -565,45 +647,45 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                           </tr>
                         ) : paginatedInvestors.length > 0 ? (
                           paginatedInvestors.map((investor, index) => (
-                      <tr key={investor.investor_id || index} className="border-b border-white/10 hover:bg-white/5">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-3">
-                          <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                            <span className="text-blue-400 font-semibold text-sm">
-                                {investor.investor_name.split(' ').map(n => n[0]).join('')}
-                            </span>
-                          </div>
-                          <div>
-                              <div className="font-medium text-white">{investor.investor_name}</div>
-                          </div>
-                        </div>
-                      </td>
-                        <td className="px-6 py-4 text-gray-300">{investor.investor_email}</td>
-                      <td className="px-6 py-4">
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                            {(investor.percentage_owned || 0).toFixed(2)}%
-                        </span>
-                      </td>
-                        <td className="px-6 py-4 text-white">
-                          {investor.investment_amount ? `$${investor.investment_amount.toLocaleString()}` : 'N/A'}
-                      </td>
-                      <td className="px-6 py-4">
-                          <span className="font-medium text-green-400">
-                            ${(investor.payout_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                      </td>
-                      </tr>
+                            <tr key={investor.investor_id || index} className="border-b border-white/10 hover:bg-white/5">
+                              <td className="px-6 py-4">
+                                <div className="flex items-center space-x-3">
+                                  <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
+                                    <span className="text-blue-400 font-semibold text-sm">
+                                      {investor.investor_name.split(' ').map(n => n[0]).join('')}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <div className="font-medium text-white">{investor.investor_name}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 text-gray-300">{investor.investor_email}</td>
+                              <td className="px-6 py-4">
+                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                  {(investor.percentage_owned || 0).toFixed(2)}%
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-white">
+                                {investor.investment_amount ? `$${investor.investment_amount.toLocaleString()}` : 'N/A'}
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className="font-medium text-green-400">
+                                  ${(investor.payout_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </td>
+                            </tr>
                           ))
                         ) : (
                           <tr>
                             <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
                               No investors found for this project
-                      </td>
-                    </tr>
+                            </td>
+                          </tr>
                         )}
-                </tbody>
-              </table>
-                    
+                      </tbody>
+                    </table>
+
                     {/* Pagination Controls */}
                     {totalInvestors > investorsPerPage && (
                       <div className="flex items-center justify-between px-6 py-4 border-t border-white/10">
@@ -612,11 +694,10 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                         </div>
                         <div className="flex items-center gap-2">
                           <button
-                            className={`px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-sm ${
-                              currentInvestorPage === 1 
-                                ? 'opacity-50 cursor-not-allowed' 
-                                : 'hover:bg-white/5 text-white'
-                            }`}
+                            className={`px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-sm ${currentInvestorPage === 1
+                              ? 'opacity-50 cursor-not-allowed'
+                              : 'hover:bg-white/5 text-white'
+                              }`}
                             onClick={() => setCurrentInvestorPage(prev => Math.max(1, prev - 1))}
                             disabled={currentInvestorPage === 1}
                           >
@@ -626,11 +707,10 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                             Page {currentInvestorPage} of {totalPages}
                           </span>
                           <button
-                            className={`px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-sm ${
-                              currentInvestorPage === totalPages 
-                                ? 'opacity-50 cursor-not-allowed' 
-                                : 'hover:bg-white/5 text-white'
-                            }`}
+                            className={`px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-sm ${currentInvestorPage === totalPages
+                              ? 'opacity-50 cursor-not-allowed'
+                              : 'hover:bg-white/5 text-white'
+                              }`}
                             onClick={() => setCurrentInvestorPage(prev => Math.min(totalPages, prev + 1))}
                             disabled={currentInvestorPage === totalPages}
                           >
@@ -653,11 +733,11 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                 projectInvestors.map((investor, index) => (
                   <div
                     key={investor.investor_id || index}
-                  className="bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-colors"
-                >
-                  <div className="flex items-center space-x-3 mb-4">
-                    <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                      <span className="text-lg font-semibold text-blue-400">
+                    className="bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-colors"
+                  >
+                    <div className="flex items-center space-x-3 mb-4">
+                      <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
+                        <span className="text-lg font-semibold text-blue-400">
                           {investor.investor_name.split(' ').map(n => n[0]).join('')}
                         </span>
                       </div>
@@ -667,8 +747,8 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                       </div>
                     </div>
                     <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
                           <p className="text-sm text-gray-400">Percentage</p>
                           <p className="text-white font-medium">{(investor.percentage_owned || 0).toFixed(2)}%</p>
                         </div>
@@ -731,8 +811,8 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                 <div key={category}>
                   <h3 className="text-lg font-medium text-white capitalize mb-4">
                     {category === 'monthly' ? 'Monthly Reports' :
-                     category === 'initial' ? 'Initial Documents' :
-                     'Compliance Reports'}
+                      category === 'initial' ? 'Initial Documents' :
+                        'Compliance Reports'}
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {categoryReports.length > 0 ? categoryReports.map((report) => (
@@ -741,17 +821,16 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                         className="bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-colors"
                       >
                         <div className="flex items-center justify-between mb-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            report.type === 'Production'
-                              ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                              : report.type === 'Financial'
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${report.type === 'Production'
+                            ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                            : report.type === 'Financial'
                               ? 'bg-green-500/10 text-green-400 border border-green-500/20'
                               : report.type === 'Legal'
-                              ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                              : report.type === 'Planning'
-                              ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
-                              : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                          }`}>
+                                ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                : report.type === 'Planning'
+                                  ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                                  : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            }`}>
                             {report.type}
                           </span>
                           {report.status === 'New' && (
