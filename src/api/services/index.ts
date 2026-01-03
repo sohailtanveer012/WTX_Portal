@@ -803,6 +803,326 @@ export async function uploadTaxDocument(
   }
 }
 
+// Percentage Distribution Requests
+export interface DistributionRecipient {
+  id: string;
+  name: string;
+  email: string;
+  percentage: number;
+  transferDate: string;
+  investor_id?: number; // Added for RPC
+  // Additional investor details
+  phone?: string;
+  dob?: string; // Date of birth
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  company?: string;
+  ssn?: string;
+  bank?: string;
+  routing?: string;
+  account?: string;
+  account_type?: string;
+}
+
+export interface DistributionRequest {
+  id: string | number;
+  investor_id?: number;
+  investor_name: string;
+  investor_email: string;
+  project_name: string;
+  project_id?: string | null;
+  total_percentage: number;
+  recipients: DistributionRecipient[] | string; // Can be JSON string or array
+  message?: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function fetchDistributionRequests(investorEmail: string): Promise<DistributionRequest[]> {
+  try {
+    const { data, error } = await supabase
+      .from('percentage_distribution_requests')
+      .select('*')
+      .eq('investor_email', investorEmail)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching distribution requests:', error);
+      return [];
+    }
+
+    // Parse recipients JSON if stored as JSON
+    return (data || []).map((req: any) => ({
+      ...req,
+      recipients: typeof req.recipients === 'string' ? JSON.parse(req.recipients) : req.recipients,
+    })) as DistributionRequest[];
+  } catch (err) {
+    console.error('Error fetching distribution requests:', err);
+    return [];
+  }
+}
+
+export async function fetchAllDistributionRequests(): Promise<DistributionRequest[]> {
+  try {
+    const { data, error } = await supabase
+      .from('percentage_distribution_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching all distribution requests:', error);
+      return [];
+    }
+
+    // Parse recipients JSON if stored as JSON
+    return (data || []).map((req: any) => ({
+      ...req,
+      recipients: typeof req.recipients === 'string' ? JSON.parse(req.recipients) : req.recipients,
+    })) as DistributionRequest[];
+  } catch (err) {
+    console.error('Error fetching all distribution requests:', err);
+    return [];
+  }
+}
+
+export async function fetchUnviewedDistributionRequestsCount(): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from('percentage_distribution_requests')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .or('viewed.is.null,viewed.eq.false');
+
+    if (error) {
+      console.error('Error fetching unviewed distribution requests count:', error);
+      return 0;
+    }
+
+    return count || 0;
+  } catch (err) {
+    console.error('Error fetching unviewed distribution requests count:', err);
+    return 0;
+  }
+}
+
+export async function markDistributionRequestsAsViewed(requestIds?: (string | number)[]): Promise<void> {
+  try {
+    if (requestIds && requestIds.length > 0) {
+      // Mark specific requests as viewed
+      const { error } = await supabase
+        .from('percentage_distribution_requests')
+        .update({ viewed: true, viewed_at: new Date().toISOString() })
+        .in('id', requestIds);
+      
+      if (error) {
+        console.error('Error marking distribution requests as viewed:', error);
+        // If viewed column doesn't exist, silently fail
+        if (error.message?.includes('column') && error.message?.includes('viewed')) {
+          console.warn('viewed column does not exist in percentage_distribution_requests table');
+        }
+      }
+    } else {
+      // Mark all pending requests as viewed
+      const { error } = await supabase
+        .from('percentage_distribution_requests')
+        .update({ viewed: true, viewed_at: new Date().toISOString() })
+        .eq('status', 'pending')
+        .or('viewed.is.null,viewed.eq.false');
+      
+      if (error) {
+        console.error('Error marking all pending distribution requests as viewed:', error);
+        // If viewed column doesn't exist, silently fail
+        if (error.message?.includes('column') && error.message?.includes('viewed')) {
+          console.warn('viewed column does not exist in percentage_distribution_requests table');
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error marking distribution requests as viewed:', err);
+  }
+}
+
+export async function sendPasswordSetupEmailsToNewUsers(
+  newUserEmails: string[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Call edge function to create auth users and send password setup emails
+    // This edge function should:
+    // 1. Create auth.users for each email (using admin API)
+    // 2. Send password reset/setup emails to each new user
+    const { error } = await supabase.functions.invoke('send-password-setup-emails', {
+      body: {
+        emails: newUserEmails,
+      },
+    });
+
+    if (error) {
+      console.warn('Password setup email edge function not available:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.warn('Error sending password setup emails (non-critical):', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to send password setup emails';
+    return { success: false, error: errorMessage };
+  }
+}
+
+export async function sendDistributionRequestEmailNotification(
+  request: DistributionRequest,
+  status: 'approved' | 'rejected',
+  adminNotes?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Try to call edge function for email notification
+    // If the edge function doesn't exist yet, this will fail gracefully
+    const { error } = await supabase.functions.invoke('send-distribution-notification', {
+      body: {
+        request_id: request.id,
+        investor_email: request.investor_email,
+        investor_name: request.investor_name,
+        project_name: request.project_name,
+        status: status,
+        recipients: request.recipients,
+        total_percentage: request.total_percentage,
+        admin_notes: adminNotes,
+        request_date: request.created_at,
+      },
+    });
+
+    if (error) {
+      // If edge function doesn't exist, log and continue
+      console.warn('Email notification edge function not available:', error.message);
+      // Don't fail the entire operation if email fails
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.warn('Error sending email notification (non-critical):', err);
+    // Don't fail the entire operation if email fails
+    return { success: false, error: err instanceof Error ? err.message : 'Email notification failed' };
+  }
+}
+
+export async function updateDistributionRequestStatus(
+  requestId: string | number,
+  status: 'approved' | 'rejected',
+  adminNotes?: string
+): Promise<{ success: boolean; error?: string; data?: { success: boolean; created_investors?: unknown[]; message?: string } }> {
+  try {
+    // First, fetch the request to get full details for email
+    const { data: requestData, error: fetchError } = await supabase
+      .from('percentage_distribution_requests')
+      .select('*')
+      .eq('id', requestId)
+      .single();
+
+    if (fetchError) {
+      console.error('Error fetching distribution request:', fetchError);
+      return { success: false, error: fetchError.message };
+    }
+
+    // If approving, call the RPC function that handles investor creation and distribution
+    if (status === 'approved') {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc(
+        'approve_percentage_distribution_with_investor_creation',
+        {
+          request_id_input: requestId,
+          admin_notes_input: adminNotes || null,
+        }
+      );
+
+      if (rpcError) {
+        console.error('Error calling approve_percentage_distribution_with_investor_creation:', rpcError);
+        return { success: false, error: rpcError.message };
+      }
+
+      // Extract newly created investor emails from RPC result
+      const createdInvestors = rpcResult?.created_investors || [];
+      const newUserEmails: string[] = [];
+      
+      if (Array.isArray(createdInvestors)) {
+        createdInvestors.forEach((investor: { email?: string }) => {
+          if (investor?.email) {
+            newUserEmails.push(investor.email);
+          }
+        });
+      }
+
+      // Send password setup emails to newly created users (non-blocking)
+      if (newUserEmails.length > 0) {
+        sendPasswordSetupEmailsToNewUsers(newUserEmails).catch(err => {
+          console.warn('Password setup emails failed (non-critical):', err);
+        });
+      }
+
+      // Send notification emails to all parties (non-blocking)
+      const parsedRequest: DistributionRequest = {
+        ...requestData,
+        recipients: typeof requestData.recipients === 'string' 
+          ? JSON.parse(requestData.recipients) 
+          : requestData.recipients,
+        status: 'approved',
+      };
+      
+      sendDistributionRequestEmailNotification(parsedRequest, 'approved', adminNotes).catch(err => {
+        console.warn('Email notification failed (non-critical):', err);
+      });
+
+      return { success: true, data: rpcResult };
+    }
+
+    // For rejection, just update the status
+    const updateData: {
+      status: 'approved' | 'rejected';
+      updated_at: string;
+      admin_notes?: string;
+    } = {
+      status,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (adminNotes) {
+      updateData.admin_notes = adminNotes;
+    }
+
+    const { error } = await supabase
+      .from('percentage_distribution_requests')
+      .update(updateData)
+      .eq('id', requestId);
+
+    if (error) {
+      console.error('Error updating distribution request status:', error);
+      return { success: false, error: error.message };
+    }
+
+    // Send email notification for rejection
+    if (requestData) {
+      const parsedRequest: DistributionRequest = {
+        ...requestData,
+        recipients: typeof requestData.recipients === 'string' 
+          ? JSON.parse(requestData.recipients) 
+          : requestData.recipients,
+      };
+      
+      sendDistributionRequestEmailNotification(parsedRequest, 'rejected', adminNotes).catch(err => {
+        console.warn('Email notification failed (non-critical):', err);
+      });
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Error updating distribution request status:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to update request status';
+    return { success: false, error: errorMessage };
+  }
+}
+
 export async function deleteTaxDocument(documentId: number, filePath: string): Promise<{ success: boolean; error?: string }> {
   try {
     // Delete from storage

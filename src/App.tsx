@@ -6,6 +6,7 @@ import { MyProjects } from './components/MyProjects';
 import { Reports } from './components/Reports';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { Investments } from './components/Investments';
+import { PercentageDistribution } from './components/PercentageDistribution';
 import { Forum } from './components/Forum';
 import { Affiliates } from './components/Affiliates';
 import { Settings } from './components/Settings';
@@ -20,7 +21,7 @@ import { AdminNewReferrals } from './components/admin/AdminNewReferrals';
 import { OnboardingModal } from './components/OnboardingModal';
 import { ReferralForm } from './components/ReferralForm';
 import { supabase } from './supabaseClient';
-import { fetchUnviewedInvestmentRequestsCount, trackReferralClick } from './api/services';
+import { fetchUnviewedInvestmentRequestsCount, fetchUnviewedDistributionRequestsCount, trackReferralClick } from './api/services';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -86,9 +87,12 @@ function App() {
         // Ensure dashboard tab is active when admin session is restored
         if (isAdminUser) {
           setActiveTab('dashboard');
-          // Fetch unviewed notifications count for admin
-          fetchUnviewedInvestmentRequestsCount().then(count => {
-            setUnviewedNotificationsCount(count);
+          // Fetch unviewed notifications count for admin (both investment and distribution requests)
+          Promise.all([
+            fetchUnviewedInvestmentRequestsCount(),
+            fetchUnviewedDistributionRequestsCount()
+          ]).then(([investmentCount, distributionCount]) => {
+            setUnviewedNotificationsCount(investmentCount + distributionCount);
           });
         }
       }
@@ -100,27 +104,44 @@ function App() {
   useEffect(() => {
     if (!isAdmin || !isAuthenticated) return;
 
-    // Initial fetch
-    fetchUnviewedInvestmentRequestsCount().then(count => {
-      setUnviewedNotificationsCount(count);
-    });
+    // Initial fetch (both investment and distribution requests)
+    const fetchAllCounts = () => {
+      Promise.all([
+        fetchUnviewedInvestmentRequestsCount(),
+        fetchUnviewedDistributionRequestsCount()
+      ]).then(([investmentCount, distributionCount]) => {
+        setUnviewedNotificationsCount(investmentCount + distributionCount);
+      });
+    };
 
-    // Set up real-time subscription
-    const subscription = supabase
+    fetchAllCounts();
+
+    // Set up real-time subscriptions for both request types
+    const investmentSubscription = supabase
       .channel('investment_requests_count_changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'investment_requests' },
         () => {
-          fetchUnviewedInvestmentRequestsCount().then(count => {
-            setUnviewedNotificationsCount(count);
-          });
+          fetchAllCounts();
+        }
+      )
+      .subscribe();
+
+    const distributionSubscription = supabase
+      .channel('distribution_requests_count_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'percentage_distribution_requests' },
+        () => {
+          fetchAllCounts();
         }
       )
       .subscribe();
 
     return () => {
-      subscription.unsubscribe();
+      investmentSubscription.unsubscribe();
+      distributionSubscription.unsubscribe();
     };
   }, [isAdmin, isAuthenticated]);
 
@@ -195,8 +216,11 @@ function App() {
             <AdminNotifications 
               onMarkAsViewed={() => {
                 // Refresh unviewed count when requests are marked as viewed
-                fetchUnviewedInvestmentRequestsCount().then(count => {
-                  setUnviewedNotificationsCount(count);
+                Promise.all([
+                  fetchUnviewedInvestmentRequestsCount(),
+                  fetchUnviewedDistributionRequestsCount()
+                ]).then(([investmentCount, distributionCount]) => {
+                  setUnviewedNotificationsCount(investmentCount + distributionCount);
                 });
               }}
             />
@@ -246,6 +270,8 @@ function App() {
           <KnowledgeBase />
         ) : activeTab === 'new investments' ? (
           <Investments userProfile={userProfile} />
+        ) : activeTab === 'percentage distribution' ? (
+          <PercentageDistribution userProfile={userProfile} />
         ) : activeTab === 'settings' ? (
           <Settings userProfile={userProfile} />
         ) : null}
