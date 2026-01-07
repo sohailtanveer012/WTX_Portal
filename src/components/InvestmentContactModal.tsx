@@ -19,7 +19,8 @@ export function InvestmentContactModal({ isOpen, onClose, investment, userProfil
     units: '',
     message: '',
     preferredContact: 'email',
-    hasComments: false
+    hasComments: false,
+    timeToLiquidate: ''
   });
 
   // Update form data when modal opens or userProfile changes
@@ -42,7 +43,8 @@ export function InvestmentContactModal({ isOpen, onClose, investment, userProfil
         units: '',
         message: '',
         preferredContact: 'email',
-        hasComments: false
+        hasComments: false,
+        timeToLiquidate: ''
       });
     }
   }, [isOpen, userProfile]);
@@ -77,6 +79,7 @@ export function InvestmentContactModal({ isOpen, onClose, investment, userProfil
             units: formData.units ? parseInt(formData.units) : null,
             message: formData.message || null,
             preferred_contact: formData.preferredContact,
+            time_to_liquidate: formData.timeToLiquidate,
             status: 'pending',
             created_at: new Date().toISOString(),
           },
@@ -226,6 +229,24 @@ export function InvestmentContactModal({ isOpen, onClose, investment, userProfil
                   Price per unit: ${(parseFloat(investment.targetRaise.replace(/[^0-9.-]+/g, '')) / 50).toLocaleString()}
                 </div>
               </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                Time to Liquidate *
+              </label>
+              <p className="text-xs text-[var(--text-muted)] mb-2">
+                When will you have the investment funds available?
+              </p>
+              <input
+                type="date"
+                required
+                value={formData.timeToLiquidate}
+                onChange={(e) => setFormData({ ...formData, timeToLiquidate: e.target.value })}
+                className="w-full px-4 py-3 bg-[var(--input-background)] border border-[var(--input-border)] rounded-xl text-[var(--input-text)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                min={new Date().toISOString().split('T')[0]}
+              />
             </div>
 
             <div className="md:col-span-2">

@@ -342,6 +342,7 @@ export interface InvestorRequest {
   units?: number;
   message?: string;
   preferred_contact?: string;
+  time_to_liquidate: string; // Date when investor will have funds available (mandatory)
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
   updated_at?: string;

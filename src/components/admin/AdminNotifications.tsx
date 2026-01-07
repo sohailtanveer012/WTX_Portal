@@ -20,6 +20,7 @@ interface InvestmentRequest {
   units?: number;
   message?: string;
   preferred_contact?: string;
+  time_to_liquidate: string; // Date when investor will have funds available (mandatory)
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
   updated_at?: string;
@@ -493,6 +494,15 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
                           <p className="text-white font-medium mt-1 capitalize">{selectedInvestmentRequest.preferred_contact}</p>
                         </div>
                       )}
+                      <div>
+                        <label className="text-sm text-gray-400 flex items-center gap-1">
+                          <Calendar className="h-4 w-4" />
+                          Time to Liquidate
+                        </label>
+                        <p className="text-white font-medium mt-1">
+                          {new Date(selectedInvestmentRequest.time_to_liquidate).toLocaleDateString()}
+                        </p>
+                      </div>
                       <div>
                         <label className="text-sm text-gray-400">Request Date</label>
                         <p className="text-white font-medium mt-1">
