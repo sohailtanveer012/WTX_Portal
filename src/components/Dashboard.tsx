@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { TrendingUp, DollarSign, Bell, Droplets, ArrowUpRight, Home, PieChart, Loader2, Briefcase, FileText, ExternalLink, Calendar } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, CartesianGrid, Cell } from 'recharts';
 import { fetchInvestorPortfolioByEmail } from '../api/services';
 
 type PortfolioRow = {
@@ -485,66 +485,209 @@ const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
         {/* Investment Progress */}
         <div className="bg-card-gradient rounded-2xl p-6 mb-8 hover-neon-glow">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-[var(--text-primary)]">Investment Progress</h2>
+            <div>
+              <h2 className="text-xl font-semibold text-[var(--text-primary)]">Investment Progress</h2>
+              <p className="text-sm text-[var(--text-muted)] mt-1">Track your investment performance across all projects</p>
+            </div>
           </div>
-          <div className="space-y-6">
-            {investmentProgress.map((project, index) => {
-              const returnPercentage = project.invested > 0 
-                ? ((project.totalPayouts / project.invested) * 100) 
-                : 0;
-              const hasPayouts = project.totalPayouts > 0;
-              return (
-                <div
-                  key={index}
-                  className="bg-[var(--card-background-hover)] rounded-xl p-4 space-y-4"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center space-x-3">
-                      <div className={`p-2 rounded-lg ${
-                        hasPayouts ? 'bg-green-500/10 border border-green-500/20' : 'bg-gray-500/10 border border-gray-500/20'
-                      }`}>
-                        <TrendingUp className={`h-5 w-5 ${hasPayouts ? 'text-green-400' : 'text-gray-400'}`} />
+          
+          {investmentProgress.length === 0 ? (
+            <div className="h-[300px] flex items-center justify-center text-gray-400">
+              <div className="text-center">
+                <TrendingUp className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No investment data available</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6 mb-6">
+              {investmentProgress.map((project, index) => {
+                const returnPercentage = project.invested > 0 
+                  ? ((project.totalPayouts / project.invested) * 100) 
+                  : 0;
+                const netReturn = project.totalPayouts - project.invested;
+                const progressToTarget = project.targetReturn > 0 
+                  ? Math.min((project.totalPayouts / project.targetReturn) * 100, 100)
+                  : 0;
+                const isPositive = netReturn >= 0;
+                
+                return (
+                  <div key={index} className="bg-[var(--card-background-hover)] rounded-xl p-6 border border-white/10">
+                    <div className="flex items-start justify-between mb-6">
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-3">{project.name}</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                          <div>
+                            <span className="text-[var(--text-muted)] text-xs block mb-1">ROI</span>
+                            <span className={`font-semibold text-base ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                              {returnPercentage >= 0 ? '+' : ''}{returnPercentage.toFixed(1)}%
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[var(--text-muted)] text-xs block mb-1">Net Return</span>
+                            <span className={`font-semibold text-base ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                              {netReturn >= 0 ? '+' : ''}${Math.abs(netReturn).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[var(--text-muted)] text-xs block mb-1">Target Return</span>
+                            <span className="font-semibold text-base text-[var(--text-primary)]">
+                              ${project.targetReturn.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[var(--text-muted)] text-xs block mb-1">Progress</span>
+                            <span className="font-semibold text-base text-yellow-400">
+                              {progressToTarget.toFixed(1)}%
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="font-medium text-[var(--text-primary)]">{project.name}</h3>
-                        <div className="flex items-center mt-1">
-                          <span className={`text-sm font-medium ${hasPayouts ? 'text-green-400' : 'text-gray-400'}`}>
-                            {returnPercentage.toFixed(1)}% Return
-                          </span>
+                      <div className="text-right ml-4">
+                        <div className="text-2xl font-bold text-[var(--text-primary)]">
+                          ${project.totalPayouts.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                        </div>
+                        <div className="text-sm text-[var(--text-muted)]">Total Returns</div>
+                      </div>
+                    </div>
+
+                    {/* Visual Progress Bar */}
+                    <div className="space-y-3">
+                      <div className="relative h-12 bg-[var(--card-background)] rounded-lg overflow-hidden">
+                        {/* Investment Base Layer */}
+                        <div 
+                          className="absolute inset-0 bg-gradient-to-r from-indigo-500/30 to-indigo-600/30 flex items-center px-4"
+                          style={{ width: `${Math.min((project.invested / Math.max(project.targetReturn, project.invested * 2)) * 100, 100)}%` }}
+                        >
+                          <span className="text-xs font-medium text-white/90">Invested: ${project.invested.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+                        </div>
+                        
+                        {/* Returns Layer */}
+                        {project.totalPayouts > 0 && (
+                          <div 
+                            className={`absolute inset-0 flex items-center px-4 transition-all duration-500 ${
+                              isPositive 
+                                ? 'bg-gradient-to-r from-green-500/60 to-green-600/60' 
+                                : 'bg-gradient-to-r from-red-500/60 to-red-600/60'
+                            }`}
+                            style={{ 
+                              width: `${Math.min((project.totalPayouts / Math.max(project.targetReturn, project.invested * 2)) * 100, 100)}%`,
+                              left: `${Math.min((project.invested / Math.max(project.targetReturn, project.invested * 2)) * 100, 100)}%`
+                            }}
+                          >
+                            {project.totalPayouts > project.invested && (
+                              <span className="text-xs font-medium text-white/90 ml-auto">
+                                Returns: ${project.totalPayouts.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Target Indicator Line */}
+                        {project.targetReturn > 0 && (
+                          <div 
+                            className="absolute top-0 bottom-0 w-0.5 bg-yellow-400/60 border-l-2 border-dashed border-yellow-400"
+                            style={{ left: `${Math.min((project.targetReturn / Math.max(project.targetReturn, project.invested * 2)) * 100, 100)}%` }}
+                          >
+                            <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
+                              <span className="text-xs font-medium text-yellow-400 bg-[var(--card-background)] px-2 py-1 rounded">Target</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Progress Percentage Display */}
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm text-[var(--text-muted)]">Progress to Target Return</span>
+                          <span className="text-lg font-bold text-yellow-400">{progressToTarget.toFixed(1)}%</span>
+                        </div>
+                        <div className="h-3 bg-[var(--card-background)] rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full transition-all duration-500 rounded-full ${
+                              progressToTarget >= 100 
+                                ? 'bg-gradient-to-r from-green-500 to-green-600'
+                                : progressToTarget >= 75
+                                ? 'bg-gradient-to-r from-blue-500 to-blue-600'
+                                : progressToTarget >= 50
+                                ? 'bg-gradient-to-r from-yellow-500 to-yellow-600'
+                                : 'bg-gradient-to-r from-orange-500 to-orange-600'
+                            }`}
+                            style={{ width: `${Math.min(progressToTarget, 100)}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between mt-2 text-xs text-[var(--text-muted)]">
+                          <span>${project.totalPayouts.toLocaleString('en-US', { maximumFractionDigits: 0 })} of ${project.targetReturn.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+                          {progressToTarget >= 100 && (
+                            <span className="text-green-400 font-medium">Target Achieved! 🎉</span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Stats Row */}
+                      <div className="grid grid-cols-2 gap-4 text-sm mt-4">
+                        <div className="bg-[var(--card-background)] rounded-lg p-3">
+                          <div className="text-[var(--text-muted)] text-xs mb-1">Initial Investment</div>
+                          <div className="text-[var(--text-primary)] font-semibold">
+                            ${project.invested.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                          </div>
+                        </div>
+                        <div className="bg-[var(--card-background)] rounded-lg p-3">
+                          <div className="text-[var(--text-muted)] text-xs mb-1">Total Returns</div>
+                          <div className={`font-semibold ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
+                            ${project.totalPayouts.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                  <div>
-                    <div className="flex h-3 overflow-hidden rounded-lg bg-[var(--card-background)] mb-3">
-                      <div
-                        style={{ width: `${Math.min((project.invested / project.targetReturn) * 100, 100)}%` }}
-                        className="bg-gray-400/30"
-                      />
-                      <div
-                        style={{ width: `${Math.min((project.totalPayouts / project.targetReturn) * 100, 100)}%` }}
-                        className="bg-green-500/50 transition-all duration-500"
-                      />
+                );
+              })}
+            </div>
+          )}
+
+          {/* Summary Cards */}
+          {investmentProgress.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+              {(() => {
+                const totalInvested = investmentProgress.reduce((sum, p) => sum + p.invested, 0);
+                const totalReturns = investmentProgress.reduce((sum, p) => sum + p.totalPayouts, 0);
+                const totalNetReturn = totalReturns - totalInvested;
+                const avgReturnPercentage = totalInvested > 0 ? ((totalReturns / totalInvested - 1) * 100) : 0;
+                
+                return (
+                  <>
+                    <div className="bg-[var(--card-background-hover)] rounded-xl p-4 border border-blue-500/20">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-[var(--text-muted)]">Total Invested</span>
+                        <DollarSign className="h-4 w-4 text-blue-400" />
+                      </div>
+                      <p className="text-2xl font-semibold text-[var(--text-primary)]">
+                        ${totalInvested.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                      </p>
                     </div>
-                    <div className="flex justify-between mt-2 text-sm">
-                      <div>
-                        <span className="text-[var(--text-muted)]">Initial Investment:</span>
-                        <span className="ml-1 font-medium text-[var(--text-primary)]">${project.invested.toLocaleString()}</span>
+                    <div className="bg-[var(--card-background-hover)] rounded-xl p-4 border border-green-500/20">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-[var(--text-muted)]">Total Returns</span>
+                        <TrendingUp className="h-4 w-4 text-green-400" />
                       </div>
-                      <div>
-                        <span className="text-[var(--text-muted)]">Current Total Payout:</span>
-                        <span className="ml-1 font-medium text-[var(--text-primary)]">${project.totalPayouts.toLocaleString()}</span>
-                      </div>
-                      <div>
-                        <span className="text-[var(--text-muted)]">Target Return:</span>
-                        <span className="ml-1 font-medium text-[var(--text-primary)]">${project.targetReturn.toLocaleString()}</span>
-                      </div>
+                      <p className="text-2xl font-semibold text-green-400">
+                        ${totalReturns.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                      </p>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                    <div className={`bg-[var(--card-background-hover)] rounded-xl p-4 border ${totalNetReturn >= 0 ? 'border-green-500/20' : 'border-red-500/20'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-[var(--text-muted)]">Net Return</span>
+                        <ArrowUpRight className={`h-4 w-4 ${totalNetReturn >= 0 ? 'text-green-400' : 'text-red-400'}`} />
+                      </div>
+                      <p className={`text-2xl font-semibold ${totalNetReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {totalNetReturn >= 0 ? '+' : ''}${totalNetReturn.toLocaleString('en-US', { maximumFractionDigits: 0 })} ({avgReturnPercentage >= 0 ? '+' : ''}{avgReturnPercentage.toFixed(1)}%)
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </div>
 
         {/* Portfolio Chart */}
