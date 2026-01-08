@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Bell, DollarSign, User, Mail, Phone, Building, Calendar, CheckCircle, XCircle, Clock, Search, ArrowRightLeft, Percent, X } from 'lucide-react';
+import { Bell, DollarSign, User, Mail, Phone, Building, Calendar, CheckCircle, XCircle, Clock, Search, ArrowRightLeft, Percent, X, MapPin, Building2, CreditCard, Banknote } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { 
   markInvestmentRequestsAsViewed, 
@@ -43,6 +43,8 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
   const [distributionRequests, setDistributionRequests] = useState<DistributionRequest[]>([]);
   const [selectedDistributionRequest, setSelectedDistributionRequest] = useState<DistributionRequest | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
+  const [editedRecipients, setEditedRecipients] = useState<DistributionRecipient[]>([]);
+  const [validationErrors, setValidationErrors] = useState<Record<number, string[]>>({});
   
   // Common state
   const [loading, setLoading] = useState(true);
@@ -98,30 +100,30 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
   // Mark requests as viewed and set up real-time subscriptions
   useEffect(() => {
     if (activeTab === 'investment') {
-      markInvestmentRequestsAsViewed().then(() => {
-        if (onMarkAsViewed) {
-          onMarkAsViewed();
-        }
-      });
-
-      const subscription = supabase
-        .channel('investment_requests_changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'investment_requests'
-          },
+    markInvestmentRequestsAsViewed().then(() => {
+      if (onMarkAsViewed) {
+        onMarkAsViewed();
+      }
+    });
+    
+    const subscription = supabase
+      .channel('investment_requests_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'investment_requests'
+        },
           () => {
-            fetchInvestmentRequests();
-          }
-        )
-        .subscribe();
+          fetchInvestmentRequests();
+        }
+      )
+      .subscribe();
 
-      return () => {
-        subscription.unsubscribe();
-      };
+    return () => {
+      subscription.unsubscribe();
+    };
     } else {
       markDistributionRequestsAsViewed().then(() => {
         if (onMarkAsViewed) {
@@ -179,9 +181,116 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
   };
 
   // Update distribution request status
+  // Update edited recipient
+  const updateEditedRecipient = (index: number, field: keyof DistributionRecipient, value: string | number) => {
+    const updated = [...editedRecipients];
+    updated[index] = { ...updated[index], [field]: value };
+    setEditedRecipients(updated);
+  };
+
+  // Initialize edited recipients when modal opens
+  useEffect(() => {
+    if (selectedDistributionRequest) {
+      const recipients = Array.isArray(selectedDistributionRequest.recipients)
+        ? selectedDistributionRequest.recipients
+        : typeof selectedDistributionRequest.recipients === 'string'
+        ? JSON.parse(selectedDistributionRequest.recipients)
+        : [];
+      setEditedRecipients(recipients.map((r: DistributionRecipient) => ({ ...r })));
+    }
+  }, [selectedDistributionRequest]);
+
   const handleDistributionStatusUpdate = async (requestId: string | number, newStatus: 'approved' | 'rejected') => {
     try {
-      const result = await updateDistributionRequestStatus(requestId, newStatus, adminNotes.trim() || undefined);
+      // If approving, validate that all required fields are filled
+      if (newStatus === 'approved') {
+        const recipientsToValidate = editedRecipients.length > 0 
+          ? editedRecipients 
+          : (Array.isArray(selectedDistributionRequest?.recipients)
+              ? selectedDistributionRequest.recipients
+              : typeof selectedDistributionRequest?.recipients === 'string'
+              ? JSON.parse(selectedDistributionRequest.recipients)
+              : []);
+
+        const errors: Record<number, string[]> = {};
+        let hasErrors = false;
+
+        recipientsToValidate.forEach((recipient: DistributionRecipient, index: number) => {
+          const recipientErrors: string[] = [];
+
+          // Validate Personal Details (mandatory fields)
+          if (!recipient.dob || recipient.dob.trim() === '') {
+            recipientErrors.push('Date of Birth');
+          }
+          if (!recipient.address || recipient.address.trim() === '') {
+            recipientErrors.push('Street Address');
+          }
+          if (!recipient.city || recipient.city.trim() === '') {
+            recipientErrors.push('City');
+          }
+          if (!recipient.state || recipient.state.trim() === '') {
+            recipientErrors.push('State');
+          }
+          if (!recipient.zip || recipient.zip.trim() === '') {
+            recipientErrors.push('ZIP Code');
+          }
+          if (!recipient.company || recipient.company.trim() === '') {
+            recipientErrors.push('Company Name');
+          }
+          if (!recipient.ssn || recipient.ssn.trim() === '') {
+            recipientErrors.push('SSN');
+          }
+
+          // Validate Banking Details (all mandatory)
+          if (!recipient.bank || recipient.bank.trim() === '') {
+            recipientErrors.push('Bank Name');
+          }
+          if (!recipient.routing || recipient.routing.trim() === '') {
+            recipientErrors.push('Routing Number');
+          }
+          if (!recipient.account || recipient.account.trim() === '') {
+            recipientErrors.push('Account Number');
+          }
+          if (!recipient.account_type || recipient.account_type.trim() === '') {
+            recipientErrors.push('Account Type');
+          }
+
+          if (recipientErrors.length > 0) {
+            errors[index] = recipientErrors;
+            hasErrors = true;
+          }
+        });
+
+        if (hasErrors) {
+          setValidationErrors(errors);
+          const errorMessages = Object.entries(errors).map(([idx, fields]) => {
+            const recipientName = recipientsToValidate[parseInt(idx)]?.name || `Recipient ${parseInt(idx) + 1}`;
+            return `${recipientName}: ${fields.join(', ')}`;
+          }).join('\n');
+          
+          alert(`Please fill in all required fields before approving:\n\n${errorMessages}\n\nAll personal details (Date of Birth, Address, City, State, ZIP Code, Company Name, SSN) and banking details (Bank Name, Routing Number, Account Number, Account Type) are mandatory.`);
+          return;
+        }
+
+        // Clear validation errors if validation passes
+        setValidationErrors({});
+      }
+
+      // Use edited recipients if available and status is approved, otherwise use original
+      const recipientsToUse = newStatus === 'approved' && editedRecipients.length > 0 
+        ? editedRecipients 
+        : (Array.isArray(selectedDistributionRequest?.recipients)
+            ? selectedDistributionRequest.recipients
+            : typeof selectedDistributionRequest?.recipients === 'string'
+            ? JSON.parse(selectedDistributionRequest.recipients)
+            : []);
+      
+      const result = await updateDistributionRequestStatus(
+        requestId, 
+        newStatus, 
+        adminNotes.trim() || undefined,
+        newStatus === 'approved' ? recipientsToUse : undefined
+      );
       
       if (result.success) {
         // Refresh the requests list
@@ -362,138 +471,138 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
         {activeTab === 'investment' && (
           <>
             {filteredInvestmentRequests.length > 0 ? (
-              <div className="space-y-4">
+          <div className="space-y-4">
                 {filteredInvestmentRequests.map((request) => (
-                  <div
-                    key={request.id}
-                    className="bg-card-gradient rounded-2xl p-6 hover-neon-glow border border-[var(--border-color)] cursor-pointer"
+              <div
+                key={request.id}
+                className="bg-card-gradient rounded-2xl p-6 hover-neon-glow border border-[var(--border-color)] cursor-pointer"
                     onClick={() => setSelectedInvestmentRequest(request)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-4">
-                          <div className="p-2 rounded-lg bg-blue-500/10">
-                            <DollarSign className="h-5 w-5 text-blue-400" />
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="text-lg font-semibold text-white">{request.project_name}</h3>
-                            <p className="text-sm text-gray-400 mt-1">
-                              Request from {request.investor_name}
-                            </p>
-                          </div>
-                          {getStatusBadge(request.status)}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-                          <div className="flex items-center space-x-2 text-sm">
-                            <User className="h-4 w-4 text-gray-400" />
-                            <span className="text-gray-300">{request.investor_name}</span>
-                          </div>
-                          <div className="flex items-center space-x-2 text-sm">
-                            <Mail className="h-4 w-4 text-gray-400" />
-                            <span className="text-gray-300">{request.investor_email}</span>
-                          </div>
-                          {request.investor_phone && (
-                            <div className="flex items-center space-x-2 text-sm">
-                              <Phone className="h-4 w-4 text-gray-400" />
-                              <span className="text-gray-300">{request.investor_phone}</span>
-                            </div>
-                          )}
-                          {request.company && (
-                            <div className="flex items-center space-x-2 text-sm">
-                              <Building className="h-4 w-4 text-gray-400" />
-                              <span className="text-gray-300">{request.company}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {request.units && (
-                          <div className="mt-4">
-                            <span className="text-sm text-gray-400">Requested Units: </span>
-                            <span className="text-sm font-medium text-white">{request.units}</span>
-                          </div>
-                        )}
-
-                        {request.message && (
-                          <div className="mt-4 p-3 bg-white/5 rounded-lg">
-                            <p className="text-sm text-gray-300 line-clamp-2">{request.message}</p>
-                          </div>
-                        )}
-
-                        <div className="flex items-center space-x-2 mt-4 text-xs text-gray-400">
-                          <Calendar className="h-3 w-3" />
-                          <span>Requested on {new Date(request.created_at).toLocaleDateString()}</span>
-                        </div>
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-3 mb-4">
+                      <div className="p-2 rounded-lg bg-blue-500/10">
+                        <DollarSign className="h-5 w-5 text-blue-400" />
                       </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-white">{request.project_name}</h3>
+                        <p className="text-sm text-gray-400 mt-1">
+                          Request from {request.investor_name}
+                        </p>
+                      </div>
+                      {getStatusBadge(request.status)}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                      <div className="flex items-center space-x-2 text-sm">
+                        <User className="h-4 w-4 text-gray-400" />
+                        <span className="text-gray-300">{request.investor_name}</span>
+                      </div>
+                      <div className="flex items-center space-x-2 text-sm">
+                        <Mail className="h-4 w-4 text-gray-400" />
+                        <span className="text-gray-300">{request.investor_email}</span>
+                      </div>
+                      {request.investor_phone && (
+                        <div className="flex items-center space-x-2 text-sm">
+                          <Phone className="h-4 w-4 text-gray-400" />
+                          <span className="text-gray-300">{request.investor_phone}</span>
+                        </div>
+                      )}
+                      {request.company && (
+                        <div className="flex items-center space-x-2 text-sm">
+                          <Building className="h-4 w-4 text-gray-400" />
+                          <span className="text-gray-300">{request.company}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {request.units && (
+                      <div className="mt-4">
+                        <span className="text-sm text-gray-400">Requested Units: </span>
+                        <span className="text-sm font-medium text-white">{request.units}</span>
+                      </div>
+                    )}
+
+                    {request.message && (
+                      <div className="mt-4 p-3 bg-white/5 rounded-lg">
+                        <p className="text-sm text-gray-300 line-clamp-2">{request.message}</p>
+                      </div>
+                    )}
+
+                    <div className="flex items-center space-x-2 mt-4 text-xs text-gray-400">
+                      <Calendar className="h-3 w-3" />
+                      <span>Requested on {new Date(request.created_at).toLocaleDateString()}</span>
                     </div>
                   </div>
-                ))}
+                </div>
               </div>
-            ) : (
-              <div className="bg-card-gradient rounded-2xl p-12 text-center">
-                <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-400 text-lg">
-                  {searchTerm || statusFilter !== 'all'
+            ))}
+          </div>
+        ) : (
+          <div className="bg-card-gradient rounded-2xl p-12 text-center">
+            <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-400 text-lg">
+              {searchTerm || statusFilter !== 'all'
                     ? 'No investment requests match your filters'
-                    : 'No investment requests yet'
-                  }
-                </p>
-              </div>
-            )}
+                : 'No investment requests yet'
+              }
+            </p>
+          </div>
+        )}
 
             {/* Investment Request Detail Modal */}
             {selectedInvestmentRequest && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                <div className="bg-card-gradient rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-[var(--border-color)]">
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-2xl font-bold text-white">Investment Request Details</h2>
-                    <button
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-card-gradient rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-[var(--border-color)]">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-white">Investment Request Details</h2>
+                <button
                       onClick={() => setSelectedInvestmentRequest(null)}
-                      className="text-gray-400 hover:text-white transition-colors"
-                    >
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
                       <X className="h-6 w-6" />
-                    </button>
-                  </div>
+                </button>
+              </div>
 
-                  <div className="space-y-6">
-                    <div>
+              <div className="space-y-6">
+                <div>
                       <h3 className="text-lg font-semibold text-white mb-4">{selectedInvestmentRequest.project_name}</h3>
                       {getStatusBadge(selectedInvestmentRequest.status)}
-                    </div>
+                </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <label className="text-sm text-gray-400">Investor Name</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="text-sm text-gray-400">Investor Name</label>
                         <p className="text-white font-medium mt-1">{selectedInvestmentRequest.investor_name}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm text-gray-400">Email</label>
+                  </div>
+                  <div>
+                    <label className="text-sm text-gray-400">Email</label>
                         <p className="text-white font-medium mt-1">{selectedInvestmentRequest.investor_email}</p>
-                      </div>
+                  </div>
                       {selectedInvestmentRequest.investor_phone && (
-                        <div>
-                          <label className="text-sm text-gray-400">Phone</label>
+                    <div>
+                      <label className="text-sm text-gray-400">Phone</label>
                           <p className="text-white font-medium mt-1">{selectedInvestmentRequest.investor_phone}</p>
-                        </div>
-                      )}
+                    </div>
+                  )}
                       {selectedInvestmentRequest.company && (
-                        <div>
-                          <label className="text-sm text-gray-400">Company</label>
+                    <div>
+                      <label className="text-sm text-gray-400">Company</label>
                           <p className="text-white font-medium mt-1">{selectedInvestmentRequest.company}</p>
-                        </div>
-                      )}
+                    </div>
+                  )}
                       {selectedInvestmentRequest.units && (
-                        <div>
-                          <label className="text-sm text-gray-400">Requested Units</label>
+                    <div>
+                      <label className="text-sm text-gray-400">Requested Units</label>
                           <p className="text-white font-medium mt-1">{selectedInvestmentRequest.units}</p>
-                        </div>
-                      )}
+                    </div>
+                  )}
                       {selectedInvestmentRequest.preferred_contact && (
-                        <div>
-                          <label className="text-sm text-gray-400">Preferred Contact Method</label>
+                    <div>
+                      <label className="text-sm text-gray-400">Preferred Contact Method</label>
                           <p className="text-white font-medium mt-1 capitalize">{selectedInvestmentRequest.preferred_contact}</p>
-                        </div>
-                      )}
+                    </div>
+                  )}
                       <div>
                         <label className="text-sm text-gray-400 flex items-center gap-1">
                           <Calendar className="h-4 w-4" />
@@ -503,44 +612,44 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
                           {new Date(selectedInvestmentRequest.time_to_liquidate).toLocaleDateString()}
                         </p>
                       </div>
-                      <div>
-                        <label className="text-sm text-gray-400">Request Date</label>
-                        <p className="text-white font-medium mt-1">
+                  <div>
+                    <label className="text-sm text-gray-400">Request Date</label>
+                    <p className="text-white font-medium mt-1">
                           {new Date(selectedInvestmentRequest.created_at).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-
-                    {selectedInvestmentRequest.message && (
-                      <div>
-                        <label className="text-sm text-gray-400">Message</label>
-                        <div className="mt-2 p-4 bg-white/5 rounded-lg">
-                          <p className="text-white">{selectedInvestmentRequest.message}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {selectedInvestmentRequest.status === 'pending' && (
-                      <div className="flex items-center space-x-4 pt-4 border-t border-[var(--border-color)]">
-                        <button
-                          onClick={() => handleInvestmentStatusUpdate(selectedInvestmentRequest.id, 'approved')}
-                          className="flex-1 px-4 py-3 bg-green-500/10 text-green-400 rounded-xl border border-green-500/20 hover:bg-green-500/20 transition-colors flex items-center justify-center space-x-2"
-                        >
-                          <CheckCircle className="h-5 w-5" />
-                          <span>Approve Request</span>
-                        </button>
-                        <button
-                          onClick={() => handleInvestmentStatusUpdate(selectedInvestmentRequest.id, 'rejected')}
-                          className="flex-1 px-4 py-3 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 hover:bg-red-500/20 transition-colors flex items-center justify-center space-x-2"
-                        >
-                          <XCircle className="h-5 w-5" />
-                          <span>Reject Request</span>
-                        </button>
-                      </div>
-                    )}
+                    </p>
                   </div>
                 </div>
+
+                    {selectedInvestmentRequest.message && (
+                  <div>
+                    <label className="text-sm text-gray-400">Message</label>
+                    <div className="mt-2 p-4 bg-white/5 rounded-lg">
+                          <p className="text-white">{selectedInvestmentRequest.message}</p>
+                    </div>
+                  </div>
+                )}
+
+                    {selectedInvestmentRequest.status === 'pending' && (
+                  <div className="flex items-center space-x-4 pt-4 border-t border-[var(--border-color)]">
+                    <button
+                          onClick={() => handleInvestmentStatusUpdate(selectedInvestmentRequest.id, 'approved')}
+                      className="flex-1 px-4 py-3 bg-green-500/10 text-green-400 rounded-xl border border-green-500/20 hover:bg-green-500/20 transition-colors flex items-center justify-center space-x-2"
+                    >
+                      <CheckCircle className="h-5 w-5" />
+                      <span>Approve Request</span>
+                    </button>
+                    <button
+                          onClick={() => handleInvestmentStatusUpdate(selectedInvestmentRequest.id, 'rejected')}
+                      className="flex-1 px-4 py-3 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 hover:bg-red-500/20 transition-colors flex items-center justify-center space-x-2"
+                    >
+                      <XCircle className="h-5 w-5" />
+                      <span>Reject Request</span>
+                    </button>
+                  </div>
+                )}
               </div>
+            </div>
+          </div>
             )}
           </>
         )}
@@ -642,13 +751,14 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
             {/* Distribution Request Detail Modal */}
             {selectedDistributionRequest && (
               <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                <div className="bg-card-gradient rounded-2xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-[var(--border-color)]">
+                <div className="bg-card-gradient rounded-2xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-[var(--border-color)]">
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-white">Distribution Request Details</h2>
                     <button
                       onClick={() => {
                         setSelectedDistributionRequest(null);
                         setAdminNotes('');
+                        setEditedRecipients([]);
                       }}
                       className="text-gray-400 hover:text-white transition-colors"
                     >
@@ -688,100 +798,430 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
                     </div>
 
                     <div>
-                      <label className="text-sm text-gray-400 mb-2 block">Recipients</label>
-                      <div className="space-y-3">
-                        {(Array.isArray(selectedDistributionRequest.recipients) 
-                          ? selectedDistributionRequest.recipients 
-                          : typeof selectedDistributionRequest.recipients === 'string'
-                          ? JSON.parse(selectedDistributionRequest.recipients)
-                          : []).map((recipient: DistributionRecipient, idx: number) => (
-                          <div key={idx} className="p-4 bg-white/5 rounded-lg space-y-4">
-                            {/* Basic Info */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                              <div>
-                                <p className="text-gray-400">Name</p>
-                                <p className="text-white font-medium mt-1">{recipient.name}</p>
-                              </div>
-                              <div>
-                                <p className="text-gray-400">Email</p>
-                                <p className="text-white font-medium mt-1">{recipient.email}</p>
-                              </div>
-                              <div>
-                                <p className="text-gray-400">Percentage</p>
-                                <p className="text-white font-medium mt-1">{recipient.percentage}%</p>
-                              </div>
-                              <div>
-                                <p className="text-gray-400">Transfer Date</p>
-                                <p className="text-white font-medium mt-1">{new Date(recipient.transferDate).toLocaleDateString()}</p>
-                              </div>
+                      <label className="text-sm text-gray-400 mb-3 block">
+                        Recipients {selectedDistributionRequest.status === 'pending' && '(Fill in additional details before approval)'}
+                      </label>
+                      {selectedDistributionRequest.status === 'pending' && (
+                        <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                          <p className="text-sm text-yellow-400">
+                            <strong>Note:</strong> All personal details (Date of Birth, Address, City, State, ZIP Code, Company Name, SSN) and banking details (Bank Name, Routing Number, Account Number, Account Type) are <strong>mandatory</strong> before approval.
+                          </p>
+                        </div>
+                      )}
+                      <div className="space-y-4">
+                        {(selectedDistributionRequest.status === 'pending' ? editedRecipients : (
+                          Array.isArray(selectedDistributionRequest.recipients) 
+                            ? selectedDistributionRequest.recipients 
+                            : typeof selectedDistributionRequest.recipients === 'string'
+                            ? JSON.parse(selectedDistributionRequest.recipients)
+                            : []
+                        )).map((recipient: DistributionRecipient, idx: number) => (
+                          <div key={idx} className="p-5 bg-white/5 rounded-xl border border-white/10 space-y-4">
+                            <div className="flex items-center gap-2 mb-3">
+                              <User className="h-4 w-4 text-blue-400" />
+                              <h4 className="text-sm font-semibold text-white">Recipient {idx + 1}</h4>
                             </div>
                             
-                            {/* Additional Details - Show if any exist */}
-                            {(recipient.phone || recipient.dob || recipient.address || recipient.city || recipient.state || recipient.zip || recipient.company || recipient.ssn || recipient.bank || recipient.routing || recipient.account || recipient.account_type) && (
-                              <div className="pt-4 border-t border-white/10">
-                                <p className="text-sm font-medium text-gray-300 mb-3">Additional Details</p>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                                  {recipient.phone && (
-                                    <div>
-                                      <p className="text-gray-400">Phone</p>
-                                      <p className="text-white font-medium mt-1">{recipient.phone}</p>
-                                    </div>
-                                  )}
-                                  {recipient.dob && (
-                                    <div>
-                                      <p className="text-gray-400">Date of Birth</p>
-                                      <p className="text-white font-medium mt-1">{new Date(recipient.dob).toLocaleDateString()}</p>
-                                    </div>
-                                  )}
-                                  {recipient.company && (
-                                    <div>
-                                      <p className="text-gray-400">Company</p>
-                                      <p className="text-white font-medium mt-1">{recipient.company}</p>
-                                    </div>
-                                  )}
-                                  {recipient.address && (
-                                    <div className="md:col-span-3">
-                                      <p className="text-gray-400">Address</p>
-                                      <p className="text-white font-medium mt-1">
-                                        {recipient.address}
-                                        {recipient.city && `, ${recipient.city}`}
-                                        {recipient.state && `, ${recipient.state}`}
-                                        {recipient.zip && ` ${recipient.zip}`}
-                                      </p>
-                                    </div>
-                                  )}
-                                  {recipient.ssn && (
-                                    <div>
-                                      <p className="text-gray-400">SSN</p>
-                                      <p className="text-white font-medium mt-1">{recipient.ssn}</p>
-                                    </div>
-                                  )}
-                                  {recipient.bank && (
-                                    <div>
-                                      <p className="text-gray-400">Bank</p>
-                                      <p className="text-white font-medium mt-1">{recipient.bank}</p>
-                                    </div>
-                                  )}
-                                  {recipient.routing && (
-                                    <div>
-                                      <p className="text-gray-400">Routing Number</p>
-                                      <p className="text-white font-medium mt-1">{recipient.routing}</p>
-                                    </div>
-                                  )}
-                                  {recipient.account && (
-                                    <div>
-                                      <p className="text-gray-400">Account Number</p>
-                                      <p className="text-white font-medium mt-1">{recipient.account}</p>
-                                    </div>
-                                  )}
-                                  {recipient.account_type && (
-                                    <div>
-                                      <p className="text-gray-400">Account Type</p>
-                                      <p className="text-white font-medium mt-1 capitalize">{recipient.account_type}</p>
-                                    </div>
-                                  )}
-                                </div>
+                            {/* Basic Info (Read-only) */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm pb-4 border-b border-white/10">
+                              <div>
+                                <p className="text-gray-400 text-xs mb-1">Name</p>
+                                <p className="text-white font-medium">{recipient.name}</p>
                               </div>
+                              <div>
+                                <p className="text-gray-400 text-xs mb-1">Email</p>
+                                <p className="text-white font-medium">{recipient.email}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-400 text-xs mb-1">Percentage</p>
+                                <p className="text-white font-medium">{recipient.percentage}%</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-400 text-xs mb-1">Transfer Date</p>
+                                <p className="text-white font-medium">{new Date(recipient.transferDate).toLocaleDateString()}</p>
+                              </div>
+                            </div>
+
+                            {/* Additional Details - Editable if pending, read-only if approved/rejected */}
+                            {selectedDistributionRequest.status === 'pending' ? (
+                              <>
+                                {/* Personal Details */}
+                                <div className="space-y-3">
+                                  <p className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                                    <User className="h-4 w-4" />
+                                    Personal Details
+                                  </p>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                                        <Phone className="h-3 w-3" />
+                                        Phone Number
+                                      </label>
+                                      <input
+                                        type="tel"
+                                        value={editedRecipients[idx]?.phone || ''}
+                                        onChange={(e) => updateEditedRecipient(idx, 'phone', e.target.value)}
+                                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="(555) 123-4567"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                                        <Calendar className="h-3 w-3" />
+                                        Date of Birth <span className="text-red-400">*</span>
+                                      </label>
+                                      <input
+                                        type="date"
+                                        value={editedRecipients[idx]?.dob || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'dob', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'Date of Birth');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 ${
+                                          validationErrors[idx]?.includes('Date of Birth') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                      />
+                                    </div>
+                                    <div className="md:col-span-2">
+                                      <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                                        <MapPin className="h-3 w-3" />
+                                        Street Address <span className="text-red-400">*</span>
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={editedRecipients[idx]?.address || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'address', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'Street Address');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 ${
+                                          validationErrors[idx]?.includes('Street Address') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                        placeholder="123 Main Street"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1">
+                                        City <span className="text-red-400">*</span>
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={editedRecipients[idx]?.city || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'city', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'City');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 ${
+                                          validationErrors[idx]?.includes('City') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                        placeholder="City"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1">
+                                        State <span className="text-red-400">*</span>
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={editedRecipients[idx]?.state || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'state', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'State');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 ${
+                                          validationErrors[idx]?.includes('State') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                        placeholder="State"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1">
+                                        ZIP Code <span className="text-red-400">*</span>
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={editedRecipients[idx]?.zip || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'zip', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'ZIP Code');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 ${
+                                          validationErrors[idx]?.includes('ZIP Code') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                        placeholder="12345"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                                        <Building2 className="h-3 w-3" />
+                                        Company Name <span className="text-red-400">*</span>
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={editedRecipients[idx]?.company || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'company', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'Company Name');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 ${
+                                          validationErrors[idx]?.includes('Company Name') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                        placeholder="Company name"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                                        <CreditCard className="h-3 w-3" />
+                                        SSN <span className="text-red-400">*</span>
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={editedRecipients[idx]?.ssn || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'ssn', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'SSN');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 ${
+                                          validationErrors[idx]?.includes('SSN') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                        placeholder="XXX-XX-XXXX"
+                                        maxLength={11}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Banking Details */}
+                                <div className="space-y-3 pt-3 border-t border-white/10">
+                                  <p className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                                    <Banknote className="h-4 w-4" />
+                                    Banking Details
+                                  </p>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                                        <Banknote className="h-3 w-3" />
+                                        Bank Name <span className="text-red-400">*</span>
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={editedRecipients[idx]?.bank || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'bank', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'Bank Name');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 ${
+                                          validationErrors[idx]?.includes('Bank Name') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                        placeholder="Bank name"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                                        <CreditCard className="h-3 w-3" />
+                                        Routing Number <span className="text-red-400">*</span>
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={editedRecipients[idx]?.routing || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'routing', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'Routing Number');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 ${
+                                          validationErrors[idx]?.includes('Routing Number') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                        placeholder="9-digit routing number"
+                                        maxLength={9}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                                        <CreditCard className="h-3 w-3" />
+                                        Account Number <span className="text-red-400">*</span>
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={editedRecipients[idx]?.account || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'account', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'Account Number');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 ${
+                                          validationErrors[idx]?.includes('Account Number') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                        placeholder="Account number"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-400 mb-1 flex items-center gap-1">
+                                        <CreditCard className="h-3 w-3" />
+                                        Account Type <span className="text-red-400">*</span>
+                                      </label>
+                                      <select
+                                        value={editedRecipients[idx]?.account_type || ''}
+                                        onChange={(e) => {
+                                          updateEditedRecipient(idx, 'account_type', e.target.value);
+                                          if (validationErrors[idx]) {
+                                            const newErrors = { ...validationErrors };
+                                            newErrors[idx] = newErrors[idx].filter(f => f !== 'Account Type');
+                                            if (newErrors[idx].length === 0) delete newErrors[idx];
+                                            setValidationErrors(newErrors);
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 bg-white/5 border rounded-lg text-white text-sm focus:outline-none focus:ring-2 appearance-none ${
+                                          validationErrors[idx]?.includes('Account Type') 
+                                            ? 'border-red-500/50 focus:ring-red-500' 
+                                            : 'border-white/10 focus:ring-blue-500'
+                                        }`}
+                                      >
+                                        <option value="">Select account type</option>
+                                        <option value="checking">Checking</option>
+                                        <option value="savings">Savings</option>
+                                        <option value="business">Business</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                </div>
+                              </>
+                            ) : (
+                              /* Read-only view for approved/rejected */
+                              (recipient.phone || recipient.dob || recipient.address || recipient.city || recipient.state || recipient.zip || recipient.company || recipient.ssn || recipient.bank || recipient.routing || recipient.account || recipient.account_type) && (
+                                <div className="pt-3 border-t border-white/10">
+                                  <p className="text-sm font-medium text-gray-300 mb-3">Additional Details</p>
+                                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                                    {recipient.phone && (
+                                      <div>
+                                        <p className="text-gray-400 text-xs mb-1">Phone</p>
+                                        <p className="text-white font-medium">{recipient.phone}</p>
+                                      </div>
+                                    )}
+                                    {recipient.dob && (
+                                      <div>
+                                        <p className="text-gray-400 text-xs mb-1">Date of Birth</p>
+                                        <p className="text-white font-medium">{new Date(recipient.dob).toLocaleDateString()}</p>
+                                      </div>
+                                    )}
+                                    {recipient.company && (
+                                      <div>
+                                        <p className="text-gray-400 text-xs mb-1">Company</p>
+                                        <p className="text-white font-medium">{recipient.company}</p>
+                                      </div>
+                                    )}
+                                    {recipient.address && (
+                                      <div className="md:col-span-3">
+                                        <p className="text-gray-400 text-xs mb-1">Address</p>
+                                        <p className="text-white font-medium">
+                                          {recipient.address}
+                                          {recipient.city && `, ${recipient.city}`}
+                                          {recipient.state && `, ${recipient.state}`}
+                                          {recipient.zip && ` ${recipient.zip}`}
+                                        </p>
+                                      </div>
+                                    )}
+                                    {recipient.ssn && (
+                                      <div>
+                                        <p className="text-gray-400 text-xs mb-1">SSN</p>
+                                        <p className="text-white font-medium">{recipient.ssn}</p>
+                                      </div>
+                                    )}
+                                    {recipient.bank && (
+                                      <div>
+                                        <p className="text-gray-400 text-xs mb-1">Bank</p>
+                                        <p className="text-white font-medium">{recipient.bank}</p>
+                                      </div>
+                                    )}
+                                    {recipient.routing && (
+                                      <div>
+                                        <p className="text-gray-400 text-xs mb-1">Routing Number</p>
+                                        <p className="text-white font-medium">{recipient.routing}</p>
+                                      </div>
+                                    )}
+                                    {recipient.account && (
+                                      <div>
+                                        <p className="text-gray-400 text-xs mb-1">Account Number</p>
+                                        <p className="text-white font-medium">{recipient.account}</p>
+                                      </div>
+                                    )}
+                                    {recipient.account_type && (
+                                      <div>
+                                        <p className="text-gray-400 text-xs mb-1">Account Type</p>
+                                        <p className="text-white font-medium capitalize">{recipient.account_type}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )
                             )}
                           </div>
                         ))}

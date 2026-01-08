@@ -1013,7 +1013,8 @@ export async function sendDistributionRequestEmailNotification(
 export async function updateDistributionRequestStatus(
   requestId: string | number,
   status: 'approved' | 'rejected',
-  adminNotes?: string
+  adminNotes?: string,
+  updatedRecipients?: DistributionRecipient[]
 ): Promise<{ success: boolean; error?: string; data?: { success: boolean; created_investors?: unknown[]; message?: string } }> {
   try {
     // First, fetch the request to get full details for email
@@ -1026,6 +1027,22 @@ export async function updateDistributionRequestStatus(
     if (fetchError) {
       console.error('Error fetching distribution request:', fetchError);
       return { success: false, error: fetchError.message };
+    }
+
+    // If admin provided updated recipients, update the request first
+    if (status === 'approved' && updatedRecipients && updatedRecipients.length > 0) {
+      const { error: updateError } = await supabase
+        .from('percentage_distribution_requests')
+        .update({
+          recipients: JSON.stringify(updatedRecipients),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', requestId);
+
+      if (updateError) {
+        console.error('Error updating recipients:', updateError);
+        return { success: false, error: updateError.message };
+      }
     }
 
     // If approving, call the RPC function that handles investor creation and distribution
@@ -1063,11 +1080,16 @@ export async function updateDistributionRequestStatus(
       }
 
       // Send notification emails to all parties (non-blocking)
+      // Use updated recipients if available
+      const finalRecipients = updatedRecipients || (
+        typeof requestData.recipients === 'string' 
+          ? JSON.parse(requestData.recipients) 
+          : requestData.recipients
+      );
+      
       const parsedRequest: DistributionRequest = {
         ...requestData,
-        recipients: typeof requestData.recipients === 'string' 
-          ? JSON.parse(requestData.recipients) 
-          : requestData.recipients,
+        recipients: finalRecipients,
         status: 'approved',
       };
       

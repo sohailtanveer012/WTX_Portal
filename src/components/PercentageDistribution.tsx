@@ -185,7 +185,7 @@ export function PercentageDistribution({ userProfile }: { userProfile?: UserProf
     return recipients.reduce((sum, r) => sum + (parseFloat(r.percentage.toString()) || 0), 0);
   }, [recipients]);
 
-  // Add new recipient
+  // Add new recipient - only basic info required
   const addRecipient = () => {
     setRecipients([
       ...recipients,
@@ -196,6 +196,7 @@ export function PercentageDistribution({ userProfile }: { userProfile?: UserProf
         percentage: 0,
         transferDate: new Date().toISOString().split('T')[0],
         phone: '',
+        // Additional fields will be filled by admin during approval
         dob: '',
         address: '',
         city: '',
@@ -237,7 +238,7 @@ export function PercentageDistribution({ userProfile }: { userProfile?: UserProf
       return;
     }
 
-    // Validate recipients
+    // Validate recipients - only basic fields required
     for (const recipient of recipients) {
       if (!recipient.name.trim()) {
         alert('Please enter a name for all recipients');
@@ -245,6 +246,10 @@ export function PercentageDistribution({ userProfile }: { userProfile?: UserProf
       }
       if (!recipient.email.trim()) {
         alert('Please enter an email for all recipients');
+        return;
+      }
+      if (!recipient.phone || !recipient.phone.trim()) {
+        alert('Please enter a phone number for all recipients');
         return;
       }
       if (recipient.percentage <= 0) {
@@ -443,12 +448,15 @@ export function PercentageDistribution({ userProfile }: { userProfile?: UserProf
                         </button>
                       </div>
 
-                      {/* Basic Information */}
+                      {/* Basic Information - Only essential fields */}
                       <div className="bg-white/5 rounded-xl p-4">
-                        <h5 className="text-sm font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                        <h5 className="text-sm font-semibold text-[var(--text-primary)] mb-2 flex items-center gap-2">
                           <User className="h-4 w-4 text-blue-400" />
-                          Basic Information
+                          Recipient Information
                         </h5>
+                        <p className="text-xs text-[var(--text-muted)] mb-4">
+                          Provide basic information. Additional details will be collected by admin during approval.
+                        </p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-[var(--text-muted)] mb-2">
@@ -476,6 +484,21 @@ export function PercentageDistribution({ userProfile }: { userProfile?: UserProf
                               className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
                               required
                               placeholder="email@example.com"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
+                              <Phone className="h-4 w-4" />
+                              Phone Number *
+                            </label>
+                            <input
+                              type="tel"
+                              value={recipient.phone || ''}
+                              onChange={(e) => updateRecipient(recipient.id, 'phone', e.target.value)}
+                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
+                              required
+                              placeholder="(555) 123-4567"
                             />
                           </div>
 
@@ -509,193 +532,6 @@ export function PercentageDistribution({ userProfile }: { userProfile?: UserProf
                               className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
                               required
                             />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Personal Details */}
-                      <div className="bg-white/5 rounded-xl p-4">
-                        <h5 className="text-sm font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
-                          <User className="h-4 w-4 text-purple-400" />
-                          Personal Details
-                        </h5>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
-                              <Phone className="h-4 w-4" />
-                              Phone Number
-                            </label>
-                            <input
-                              type="tel"
-                              value={recipient.phone || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'phone', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                              placeholder="(555) 123-4567"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
-                              <Calendar className="h-4 w-4" />
-                              Date of Birth
-                            </label>
-                            <input
-                              type="date"
-                              value={recipient.dob || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'dob', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                            />
-                          </div>
-
-                          <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
-                              <MapPin className="h-4 w-4" />
-                              Street Address
-                            </label>
-                            <input
-                              type="text"
-                              value={recipient.address || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'address', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                              placeholder="123 Main Street"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2">
-                              City
-                            </label>
-                            <input
-                              type="text"
-                              value={recipient.city || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'city', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                              placeholder="City"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2">
-                              State
-                            </label>
-                            <input
-                              type="text"
-                              value={recipient.state || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'state', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                              placeholder="State"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2">
-                              ZIP Code
-                            </label>
-                            <input
-                              type="text"
-                              value={recipient.zip || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'zip', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                              placeholder="12345"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
-                              <Building2 className="h-4 w-4" />
-                              Company Name
-                            </label>
-                            <input
-                              type="text"
-                              value={recipient.company || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'company', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                              placeholder="Company name"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
-                              <CreditCard className="h-4 w-4" />
-                              SSN
-                            </label>
-                            <input
-                              type="text"
-                              value={recipient.ssn || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'ssn', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                              placeholder="XXX-XX-XXXX"
-                              maxLength={11}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Banking Details */}
-                      <div className="bg-white/5 rounded-xl p-4">
-                        <h5 className="text-sm font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
-                          <Banknote className="h-4 w-4 text-yellow-400" />
-                          Banking Details
-                        </h5>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
-                              <Banknote className="h-4 w-4" />
-                              Bank Name
-                            </label>
-                            <input
-                              type="text"
-                              value={recipient.bank || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'bank', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                              placeholder="Bank name"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
-                              <CreditCard className="h-4 w-4" />
-                              Routing Number
-                            </label>
-                            <input
-                              type="text"
-                              value={recipient.routing || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'routing', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                              placeholder="9-digit routing number"
-                              maxLength={9}
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
-                              <CreditCard className="h-4 w-4" />
-                              Account Number
-                            </label>
-                            <input
-                              type="text"
-                              value={recipient.account || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'account', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all"
-                              placeholder="Account number"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-[var(--text-muted)] mb-2 flex items-center gap-1">
-                              <CreditCard className="h-4 w-4" />
-                              Account Type
-                            </label>
-                            <select
-                              value={recipient.account_type || ''}
-                              onChange={(e) => updateRecipient(recipient.id, 'account_type', e.target.value)}
-                              className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50 transition-all appearance-none"
-                            >
-                              <option value="">Select account type</option>
-                              <option value="checking">Checking</option>
-                              <option value="savings">Savings</option>
-                              <option value="business">Business</option>
-                            </select>
                           </div>
                         </div>
                       </div>
