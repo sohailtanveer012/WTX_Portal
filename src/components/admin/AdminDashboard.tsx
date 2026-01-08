@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Users, FolderOpen, FileText, TrendingUp, BarChart3, AlertCircle, DollarSign, Activity, ChevronRight, Droplets, Sun } from 'lucide-react';
-import { AreaChart, Area, BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { AreaChart, Area, BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from 'recharts';
 import { fetchProjectsWithInvestorCount, fetchTotalRevenueMonthly, fetchProjectRevenueByMonth, fetchTotalRevenueAllProjects, fetchInvestorReturnSummary } from '../../api/services';
 
 export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?: (user: any) => void, userProfile?: any }) {
@@ -151,6 +151,8 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
   const [selectedTab, setSelectedTab] = useState('overview');
   const [selectedProductionView, setSelectedProductionView] = useState('total');
   const [selectedTimeframe, setSelectedTimeframe] = useState('6m');
+  const [productionData, setProductionData] = useState<any[]>([]);
+  const [loadingProduction, setLoadingProduction] = useState<boolean>(false);
 
   
 
@@ -202,56 +204,104 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
     }
   ];
 
-  const revenueData = [
-    {
-      month: 'Jan',
-      revenue: 3200000,
-      totalProduction: 98000,
-      eagleFord: 42000,
-      permian: 35000,
-      bakken: 21000
-    },
-    {
-      month: 'Feb',
-      revenue: 3400000,
-      totalProduction: 102000,
-      eagleFord: 44000,
-      permian: 36000,
-      bakken: 22000
-    },
-    {
-      month: 'Mar',
-      revenue: 3800000,
-      totalProduction: 108000,
-      eagleFord: 46000,
-      permian: 38000,
-      bakken: 24000
-    },
-    {
-      month: 'Apr',
-      revenue: 3900000,
-      totalProduction: 115000,
-      eagleFord: 48000,
-      permian: 42000,
-      bakken: 25000
-    },
-    {
-      month: 'May',
-      revenue: 4100000,
-      totalProduction: 120000,
-      eagleFord: 50000,
-      permian: 44000,
-      bakken: 26000
-    },
-    {
-      month: 'Jun',
-      revenue: 4200000,
-      totalProduction: 125480,
-      eagleFord: 52000,
-      permian: 46000,
-      bakken: 27480
+  // Load production/revenue data for the Production by Project chart
+  useEffect(() => {
+    const loadProductionData = async () => {
+      setLoadingProduction(true);
+      try {
+        const monthlyTotals = await fetchTotalRevenueMonthly();
+        
+        // Determine months to show based on timeframe
+        const monthsToShow = selectedTimeframe === '6m' ? 6 : 12;
+        const now = new Date();
+        const monthData: Record<string, { month: string; totalRevenue: number; byProject: Record<string, number> }> = {};
+        
+        // Initialize last N months
+        for (let i = monthsToShow - 1; i >= 0; i--) {
+          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          const monthLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+          monthData[monthKey] = {
+            month: monthLabel,
+            totalRevenue: 0,
+            byProject: {}
+          };
+        }
+        
+        // Aggregate revenue data
+        (monthlyTotals || []).forEach((row: any) => {
+          const year = row.year;
+          const month = String(row.month).padStart(2, '0');
+          const monthKey = `${year}-${month}`;
+          
+          if (monthData[monthKey]) {
+            monthData[monthKey].totalRevenue += Number(row.total_revenue || 0);
+          }
+        });
+        
+        // Get revenue by project for each month (limit to active projects for performance)
+        if (selectedProductionView === 'byProject' && projects.length > 0) {
+          // Only fetch for active projects to reduce API calls
+          const activeProjects = projects.filter((p: any) => !p.status || (p.status || '').toLowerCase() === 'active').slice(0, 8);
+          
+          for (const monthKey of Object.keys(monthData)) {
+            const projectRevenues = await Promise.all(
+              activeProjects.map(async (p: any) => {
+                const pid = p.project_id || p.id || p.ID || p.PROJECT_ID;
+                if (!pid) return null;
+                try {
+                  const revenue = await fetchProjectRevenueByMonth(String(pid), monthKey);
+                  return {
+                    name: p.project_name || p.name || 'Project',
+                    revenue: Number(revenue || 0)
+                  };
+                } catch (e) {
+                  console.error(`Error fetching revenue for project ${pid} in ${monthKey}:`, e);
+                  return null;
+                }
+              })
+            );
+            
+            projectRevenues.forEach((pr: any) => {
+              if (pr && pr.revenue > 0) {
+                monthData[monthKey].byProject[pr.name] = pr.revenue;
+              }
+            });
+          }
+        }
+        
+        // Convert to array format
+        const dataArray = Object.values(monthData).map((data: any) => {
+          const result: any = {
+            month: data.month,
+            totalRevenue: data.totalRevenue
+          };
+          
+          // Add project-specific data if viewing by project
+          if (selectedProductionView === 'byProject') {
+            Object.keys(data.byProject).forEach((projectName) => {
+              // Use a safe key (sanitize project name for object key)
+              const safeKey = projectName.replace(/[^a-zA-Z0-9]/g, '');
+              result[safeKey] = data.byProject[projectName];
+            });
+          }
+          
+          return result;
+        });
+        
+        setProductionData(dataArray);
+      } catch (e) {
+        console.error('Failed loading production data:', e);
+        setProductionData([]);
+      } finally {
+        setLoadingProduction(false);
+      }
+    };
+    
+    if (projects.length > 0) {
+      loadProductionData();
     }
-  ];
+  }, [selectedTimeframe, selectedProductionView, projects]);
 
   const projectPerformance = [
     { name: 'Permian', value: 450000 },
@@ -506,98 +556,154 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
                 </select>
               </div>
             </div>
-            <div className="h-[300px]">
+            <div className="h-[400px]">
+              {loadingProduction ? (
+                <div className="h-full flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <Activity className="h-8 w-8 mx-auto mb-2 animate-pulse" />
+                    <p>Loading production data...</p>
+                  </div>
+                </div>
+              ) : productionData.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <BarChart3 className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No production data available</p>
+                    <p className="text-sm mt-1">Data will appear here once available</p>
+                  </div>
+                </div>
+              ) : (
               <ResponsiveContainer width="100%" height="100%">
                 {selectedProductionView === 'total' ? (
-                  <AreaChart data={revenueData}>
+                    <AreaChart data={productionData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="colorProduction" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.1}/>
+                        <linearGradient id="colorTotalRevenue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
                         <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <XAxis dataKey="month" stroke="var(--text-muted)" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                      <XAxis 
+                        dataKey="month" 
+                        stroke="var(--text-muted)" 
+                        tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
+                        tickMargin={10}
+                      />
                     <YAxis
                       stroke="var(--text-muted)"
-                      tickFormatter={(value) => `${value/1000}k BBL`}
+                        tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
+                        tickFormatter={(value) => {
+                          if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+                          if (value >= 1000) return `$${(value / 1000).toFixed(0)}k`;
+                          return `$${value}`;
+                        }}
+                        width={80}
                     />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: 'var(--card-background)',
-                        border: '1px solid var(--border-color)',
+                          backgroundColor: 'rgba(30, 41, 59, 0.95)',
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
                         borderRadius: '0.75rem',
+                          padding: '12px',
                       }}
-                      formatter={(value: any) => [`${value.toLocaleString()} BBL`, 'Production']}
+                        labelStyle={{ color: 'white', marginBottom: '8px', fontWeight: '600' }}
+                        itemStyle={{ color: 'white' }}
+                        formatter={(value: any) => [`$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, 'Total Revenue']}
                     />
                     <Area
                       type="monotone"
-                      dataKey="totalProduction"
+                        dataKey="totalRevenue"
                       stroke="#3B82F6"
+                        strokeWidth={2}
                       fillOpacity={1}
-                      fill="url(#colorProduction)"
-                      name="Total Production"
+                        fill="url(#colorTotalRevenue)"
+                        name="Total Revenue"
                     />
                   </AreaChart>
                 ) : (
-                  <AreaChart data={revenueData}>
+                    <AreaChart data={productionData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="colorEagleFord" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+                        {projects.slice(0, 8).map((project: any, index: number) => {
+                          const colors = ['#3B82F6', '#10B981', '#6366F1', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899'];
+                          const color = colors[index % colors.length];
+                          const safeKey = (project.project_name || project.name || 'Project').replace(/[^a-zA-Z0-9]/g, '');
+                          return (
+                            <linearGradient key={safeKey} id={`color${safeKey}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor={color} stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor={color} stopOpacity={0}/>
                       </linearGradient>
-                      <linearGradient id="colorPermian" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10B981" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorBakken" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6366F1" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#6366F1" stopOpacity={0}/>
-                      </linearGradient>
+                          );
+                        })}
                     </defs>
-                    <XAxis dataKey="month" stroke="var(--text-muted)" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                      <XAxis 
+                        dataKey="month" 
+                        stroke="var(--text-muted)" 
+                        tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
+                        tickMargin={10}
+                      />
                     <YAxis
                       stroke="var(--text-muted)"
-                      tickFormatter={(value) => `${value/1000}k BBL`}
+                        tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
+                        tickFormatter={(value) => {
+                          if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+                          if (value >= 1000) return `$${(value / 1000).toFixed(0)}k`;
+                          return `$${value}`;
+                        }}
+                        width={80}
                     />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: 'var(--card-background)',
-                        border: '1px solid var(--border-color)',
+                          backgroundColor: 'rgba(30, 41, 59, 0.95)',
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
                         borderRadius: '0.75rem',
-                      }}
-                      formatter={(value: any) => [`${value.toLocaleString()} BBL`, '']}
-                    />
-                    <Legend />
+                          padding: '12px',
+                        }}
+                        labelStyle={{ color: 'white', marginBottom: '8px', fontWeight: '600' }}
+                        itemStyle={{ color: 'white' }}
+                        formatter={(value: any, name: string) => {
+                          // Find the actual project name from the safe key
+                          const project = projects.find((p: any) => {
+                            const safeKey = (p.project_name || p.name || 'Project').replace(/[^a-zA-Z0-9]/g, '');
+                            return safeKey === name;
+                          });
+                          const projectName = project ? (project.project_name || project.name || 'Project') : name;
+                          return [`$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, projectName];
+                        }}
+                      />
+                      <Legend 
+                        wrapperStyle={{ paddingTop: '20px' }}
+                        iconType="circle"
+                        formatter={(value: string) => {
+                          const project = projects.find((p: any) => {
+                            const safeKey = (p.project_name || p.name || 'Project').replace(/[^a-zA-Z0-9]/g, '');
+                            return safeKey === value;
+                          });
+                          return project ? (project.project_name || project.name || 'Project') : value;
+                        }}
+                      />
+                      {projects.slice(0, 8).map((project: any, index: number) => {
+                        const colors = ['#3B82F6', '#10B981', '#6366F1', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899'];
+                        const color = colors[index % colors.length];
+                        const safeKey = (project.project_name || project.name || 'Project').replace(/[^a-zA-Z0-9]/g, '');
+                        return (
                     <Area
+                            key={safeKey}
                       type="monotone"
-                      dataKey="eagleFord"
-                      stroke="#3B82F6"
-                      fillOpacity={1}
-                      fill="url(#colorEagleFord)"
-                      name="Eagle Ford"
+                            dataKey={safeKey}
+                            stroke={color}
+                            strokeWidth={2}
+                            fillOpacity={0.6}
+                            fill={`url(#color${safeKey})`}
+                            name={safeKey}
                       stackId="1"
                     />
-                    <Area
-                      type="monotone"
-                      dataKey="permian"
-                      stroke="#10B981"
-                      fillOpacity={1}
-                      fill="url(#colorPermian)"
-                      name="Permian"
-                      stackId="1"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="bakken"
-                      stroke="#6366F1"
-                      fillOpacity={1}
-                      fill="url(#colorBakken)"
-                      name="Bakken"
-                      stackId="1"
-                    />
+                        );
+                      })}
                   </AreaChart>
                 )}
               </ResponsiveContainer>
+              )}
             </div>
           </div>
 
@@ -624,30 +730,66 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
                 </select>
               </div>
             </div>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <RechartsBarChart data={perfData}>
+            <div className="h-[600px]">
+              {loadingPerf ? (
+                <div className="h-full flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <Activity className="h-8 w-8 mx-auto mb-2 animate-pulse" />
+                    <p>Loading performance data...</p>
+                  </div>
+                </div>
+              ) : perfData.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <TrendingUp className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No performance data available</p>
+                    <p className="text-sm mt-1">Data will appear here once available</p>
+                  </div>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                 <RechartsBarChart 
+                   data={perfData}
+                   margin={{ 
+                     top: 20, 
+                     right: 30, 
+                     left: 20, 
+                     bottom: Math.max(100, perfData.length * 12)
+                   }}
+                 >
                   <XAxis
                     dataKey="name"
                     stroke="var(--text-muted)"
                     interval={0}
                     angle={-35}
                     textAnchor="end"
-                    tick={{ fill: 'var(--text-muted)' }}
-                    height={80}
+                    tick={{ fill: 'var(--text-muted)', fontSize: 13, fontWeight: 500 }}
+                    height={Math.max(100, perfData.length * 12)}
                     tickMargin={10}
                   />
-                  <YAxis stroke="var(--text-muted)" tickFormatter={(value) => `$${value/1000}k`} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--card-background)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '0.75rem',
-                    }}
-                  />
-                  <Bar dataKey="value" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
-                </RechartsBarChart>
-              </ResponsiveContainer>
+                   <YAxis stroke="var(--text-muted)" tickFormatter={(value) => `$${value/1000}k`} />
+                   <Tooltip
+                     contentStyle={{
+                       backgroundColor: 'var(--card-background)',
+                       border: '1px solid var(--border-color)',
+                       borderRadius: '0.75rem',
+                       padding: '10px',
+                     }}
+                     labelStyle={{ color: 'var(--text-primary)', marginBottom: '6px', fontWeight: '600' }}
+                     itemStyle={{ color: 'var(--text-primary)' }}
+                     formatter={(value: any) => {
+                       const numValue = Number(value);
+                       // Round to 2 decimal places or show as integer if whole number
+                       const formattedValue = numValue % 1 === 0 
+                         ? `$${numValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                         : `$${numValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                       return [formattedValue, selectedPerfMetric === 'monthly' ? 'Monthly Revenue' : 'Total Revenue'];
+                     }}
+                   />
+                   <Bar dataKey="value" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+                 </RechartsBarChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
         </div>
