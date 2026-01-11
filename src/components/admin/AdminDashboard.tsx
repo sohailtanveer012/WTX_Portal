@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Users, FolderOpen, FileText, TrendingUp, BarChart3, AlertCircle, DollarSign, Activity, ChevronRight, Droplets, Sun } from 'lucide-react';
+import { Users, FolderOpen, FileText, TrendingUp, BarChart3, AlertCircle, DollarSign, Activity, ChevronRight, Sun, Percent } from 'lucide-react';
 import { AreaChart, Area, BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from 'recharts';
 import { fetchProjectsWithInvestorCount, fetchTotalRevenueMonthly, fetchProjectRevenueByMonth, fetchTotalRevenueAllProjects, fetchInvestorReturnSummary } from '../../api/services';
 
@@ -48,6 +48,15 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
   const totalRevenueFallback = projects.reduce((sum, p) => sum + (Number(p.monthly_revenue) || 0), 0);
   const totalRevenue = (totalRevenueAllMonths ?? totalRevenueFallback);
 
+  // Calculate overall ROI % from investor returns
+  const roiPercentage = useMemo(() => {
+    if (!investorReturns || investorReturns.length === 0) return 0;
+    const totalInvestment = investorReturns.reduce((sum, inv) => sum + (Number(inv.total_investment) || 0), 0);
+    const totalPayout = investorReturns.reduce((sum, inv) => sum + (Number(inv.total_payout) || 0), 0);
+    if (totalInvestment === 0) return 0;
+    return ((totalPayout / totalInvestment) * 100);
+  }, [investorReturns]);
+
   const stats = [
     {
       label: 'Active Investors',
@@ -66,11 +75,11 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
       color: 'purple',
     },
     {
-      label: 'Monthly Production',
-      value: '125,480 BBL',
-      change: '+15.3%',
+      label: 'ROI %',
+      value: loadingInvestorReturns ? '...' : `${roiPercentage >= 0 ? '+' : ''}${roiPercentage.toFixed(1)}%`,
+      change: '',
       trend: 'up',
-      icon: Droplets,
+      icon: Percent,
       color: 'green',
     },
     {
