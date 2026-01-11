@@ -58,7 +58,7 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [filter, setFilter] = useState('all');
+  const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
   const [showPayout, setShowPayout] = useState(false);
   const [showAddInvestorModal, setShowAddInvestorModal] = useState(false);
   const [projectInvestors, setProjectInvestors] = useState<InvestorLike[]>([]);
@@ -109,9 +109,26 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
     load();
   }, [actualProjectId, project?.startDate]);
 
+  // Get unique years from history
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    history.forEach((row) => {
+      const year = row.key.split('-')[0];
+      years.add(year);
+    });
+    return Array.from(years).sort((a, b) => parseInt(b) - parseInt(a)); // Most recent first
+  }, [history]);
+
+  // Set default year to the most recent year with data
+  useEffect(() => {
+    if (availableYears.length > 0 && !availableYears.includes(selectedYear)) {
+      setSelectedYear(availableYears[0]);
+    }
+  }, [availableYears, selectedYear]);
+
   const filteredHistory = useMemo(
-    () => (filter === 'all' ? history : history.filter((row) => row.key === filter)),
-    [filter, history]
+    () => history.filter((row) => row.key.startsWith(selectedYear + '-')),
+    [history, selectedYear]
   );
 
   const chartData = useMemo(() => {
@@ -349,14 +366,13 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <h2 className="text-xl font-semibold text-white">Monthly Breakdown</h2>
             <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
               className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-gray-400"
             >
-              <option value="all">All Months</option>
-              {history.map((row) => (
-                <option key={row.key} value={row.key}>
-                  {row.label}
+              {availableYears.map((year) => (
+                <option key={year} value={year}>
+                  {year}
                 </option>
               ))}
             </select>
