@@ -124,7 +124,7 @@ export function Sidebar({ activeTab, setActiveTab, isAdmin, setIsAuthenticated, 
           </div>
           <div>
             <p className="text-[var(--text-primary)] font-medium">
-              {userProfile?.contact_name || userProfile?.account_name || userProfile?.full_name || (isAdmin ? 'Admin User' : 'Investor')}
+              {userProfile?.contact_name || userProfile?.account_name || userProfile?.full_name || (isAdmin ? 'Admin' : 'Investor')}
             </p>
             <p className="text-sm text-[var(--text-muted)]">
               {isAdmin ? 'Administrator' : 'Investor'}
