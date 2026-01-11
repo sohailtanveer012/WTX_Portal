@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { TrendingUp, DollarSign, Bell, Droplets, ArrowUpRight, Home, PieChart, Loader2, Briefcase, FileText, ExternalLink, Calendar } from 'lucide-react';
+import { TrendingUp, DollarSign, Bell, Droplets, ArrowUpRight, Home, PieChart, Loader2, Briefcase, FileText, ExternalLink, Calendar, Percent } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, CartesianGrid, Cell } from 'recharts';
 import { fetchInvestorPortfolioByEmail } from '../api/services';
 
@@ -120,9 +120,9 @@ export function Dashboard({ userProfile, setActiveTab }: { userProfile?: UserPro
     const payoutsWithAmounts = portfolio.filter(p => p.payout_amount && Number(p.payout_amount) > 0);
     const totalReturn = payoutsWithAmounts.reduce((sum, p) => sum + Number(p.payout_amount || 0), 0);
 
-    // Calculate average monthly payout: average of all payout amounts
-    const averageMonthlyPayout = payoutsWithAmounts.length > 0 
-      ? totalReturn / payoutsWithAmounts.length 
+    // Calculate ROI %: (totalReturn / totalInvestment) * 100
+    const roiPercentage = totalInvestment > 0 
+      ? ((totalReturn / totalInvestment) * 100)
       : 0;
 
     const activeProjects = Object.keys(groupedByProject).length;
@@ -141,9 +141,9 @@ export function Dashboard({ userProfile, setActiveTab }: { userProfile?: UserPro
       color: 'green',
     },
     {
-        label: 'Average Monthly Payout',
-        value: `$${Math.round(averageMonthlyPayout).toLocaleString()}`,
-        icon: Briefcase,
+        label: 'ROI %',
+        value: `${roiPercentage >= 0 ? '+' : ''}${roiPercentage.toFixed(1)}%`,
+        icon: Percent,
       color: 'purple',
     },
     {
@@ -469,7 +469,7 @@ const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
                   <stat.icon className={`h-6 w-6 text-${stat.color}-400`} />
                 </div>
                 {(stat.label === 'Total Portfolio Value' || 
-                  stat.label === 'Average Monthly Payout' || 
+                  stat.label === 'ROI %' || 
                   stat.label === 'Annual Return') && (
                   <span className="text-sm font-medium text-green-400">
                     <ArrowUpRight className="h-4 w-4" />
