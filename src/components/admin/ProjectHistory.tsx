@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Calendar, DollarSign, Users, History as HistoryIcon } from 'lucide-react';
+import { ArrowLeft, Calendar, DollarSign, Users, History as HistoryIcon, Calculator, UserPlus } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
-import { fetchProjectInvestorsByMonth, fetchProjectRevenueByMonth } from '../../api/services';
+import { fetchProjectInvestorsByMonth, fetchProjectRevenueByMonth, fetchInvestorsByProject } from '../../api/services';
+import { ProjectPayout } from './ProjectPayout';
+import { AddInvestorModal } from './AddInvestorModal';
 
 type ProjectLike = Record<string, unknown> | string | number;
 
@@ -57,6 +59,9 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
   const [isLoading, setIsLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [filter, setFilter] = useState('all');
+  const [showPayout, setShowPayout] = useState(false);
+  const [showAddInvestorModal, setShowAddInvestorModal] = useState(false);
+  const [projectInvestors, setProjectInvestors] = useState<InvestorLike[]>([]);
 
   const actualProjectId =
     typeof projectId === 'object'
@@ -141,6 +146,59 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
     );
   }, [project]);
 
+  // Fetch investors when payout modal is about to open
+  useEffect(() => {
+    if (showPayout && actualProjectId) {
+      const loadInvestors = async () => {
+        try {
+          const investors = await fetchInvestorsByProject(String(actualProjectId));
+          setProjectInvestors(investors);
+        } catch (err) {
+          console.error('Failed to load investors for payout', err);
+          setProjectInvestors([]);
+        }
+      };
+      loadInvestors();
+    }
+  }, [showPayout, actualProjectId]);
+
+  // Show payout view if requested
+  if (showPayout) {
+    const projectIdString = String(actualProjectId);
+    const projectData = project as Record<string, unknown> || {};
+    return (
+      <ProjectPayout
+        projectId={projectIdString}
+        project={{
+          id: projectIdString,
+          name: projectName,
+          location: projectData.location as string,
+          status: projectData.status as string,
+          investors: projectData.investors as number,
+          totalInvestment: projectData.totalInvestment as string,
+          monthlyRevenue: projectData.monthlyRevenue as string,
+          completionDate: projectData.completionDate as string,
+          description: projectData.description as string,
+          startDate: projectData.startDate as string,
+          operatingCosts: projectData.operatingCosts as string,
+          productionRate: projectData.productionRate as string,
+          recoveryRate: projectData.recoveryRate as string,
+          wellCount: projectData.wellCount as number,
+          hasInvestorGroups: projectData.hasInvestorGroups as boolean,
+        }}
+        investors={projectInvestors.map(inv => ({
+          investor_id: inv.investor_id,
+          investor_name: inv.investor_name || '',
+          investor_email: inv.investor_email || '',
+          percentage_owned: inv.percentage_owned || 0,
+          payout_amount: inv.payout_amount,
+          investment_amount: inv.investment_amount,
+        }))}
+        onBack={() => setShowPayout(false)}
+      />
+    );
+  }
+
   return (
     <main className="flex-1 overflow-y-auto bg-apple-gradient p-6">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -165,6 +223,22 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
                 </span>
               </div>
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowPayout(true)}
+              className="flex items-center px-4 py-2 bg-green-500/10 text-green-400 rounded-xl border border-green-500/20 hover:bg-green-500/20 transition-colors"
+            >
+              <Calculator className="h-5 w-5 mr-2" />
+              Calculate Payout
+            </button>
+            <button
+              onClick={() => setShowAddInvestorModal(true)}
+              className="flex items-center px-4 py-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 hover:bg-blue-500/20 transition-colors"
+            >
+              <UserPlus className="h-5 w-5 mr-2" />
+              Add New User
+            </button>
           </div>
         </div>
 
@@ -386,6 +460,17 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
           )}
         </div>
       </div>
+
+      <AddInvestorModal
+        isOpen={showAddInvestorModal}
+        onClose={() => setShowAddInvestorModal(false)}
+        onSuccess={() => {
+          // Refresh the history to reload investors list
+          window.location.reload();
+        }}
+        preselectedProjectId={String(actualProjectId)}
+        preselectedProjectName={projectName}
+      />
     </main>
   );
 }
