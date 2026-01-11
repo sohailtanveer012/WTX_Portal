@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Bell, Shield, Moon, Mail, Phone, Globe, Key, Languages, CreditCard, Download, HelpCircle, ChevronRight, ToggleLeft as Toggle, Cog, Loader2 } from 'lucide-react';
+import { User, Shield, Mail, Key, Download, HelpCircle, ChevronRight, Cog, Loader2 } from 'lucide-react';
 import { fetchInvestorPortfolioByEmail } from '../api/services';
 import { BankingDetails } from './BankingDetails';
 import { PersonalInfo } from './PersonalInfo';
@@ -46,18 +46,6 @@ interface UserProfile {
 }
 
 export function Settings({ userProfile }: { userProfile?: UserProfile }) {
-  const [notifications, setNotifications] = useState({
-    email: true,
-    push: true,
-    monthlyStatement: true,
-    taxDocuments: true,
-    projectUpdates: true,
-    marketingEmails: false,
-  });
-
-  const [theme, setTheme] = useState('dark');
-  const [language, setLanguage] = useState('en');
-  const [currency, setCurrency] = useState('USD');
   const [portfolio, setPortfolio] = useState<PortfolioRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
@@ -154,41 +142,6 @@ export function Settings({ userProfile }: { userProfile?: UserProfile }) {
           </div>
         </div>
 
-        {/* Notification Preferences */}
-        <div className="bg-card-gradient rounded-2xl p-6 mb-8 hover-neon-glow">
-          <div className="flex items-center space-x-3 mb-6">
-            <Bell className="h-6 w-6 text-purple-400" />
-            <h2 className="text-xl font-semibold text-white">Notification Preferences</h2>
-          </div>
-          
-          <div className="space-y-4">
-            {Object.entries(notifications).map(([key, value]) => (
-              <div key={key} className="flex items-center justify-between p-4 rounded-xl bg-white/5">
-                <div>
-                  <h3 className="text-white font-medium capitalize">
-                    {key.replace(/([A-Z])/g, ' $1').trim()}
-                  </h3>
-                  <p className="text-sm text-gray-400">
-                    {`Receive ${key.replace(/([A-Z])/g, ' $1').toLowerCase()} notifications`}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setNotifications(prev => ({ ...prev, [key]: !prev[key] }))}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    value ? 'bg-blue-400' : 'bg-gray-600'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      value ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* Security Settings */}
         <div className="bg-card-gradient rounded-2xl p-6 mb-8 hover-neon-glow">
           <div className="flex items-center space-x-3 mb-6">
@@ -226,41 +179,6 @@ export function Settings({ userProfile }: { userProfile?: UserProfile }) {
               <button className="px-4 py-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 hover:bg-blue-500/20">
                 Enable
               </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Preferences */}
-        <div className="bg-card-gradient rounded-2xl p-6 mb-8 hover-neon-glow">
-          <div className="flex items-center space-x-3 mb-6">
-            <Globe className="h-6 w-6 text-yellow-400" />
-            <h2 className="text-xl font-semibold text-white">Preferences</h2>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Language</label>
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="en">English</option>
-                <option value="es">Español</option>
-                <option value="fr">Français</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Currency</label>
-              <select
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="USD">USD ($)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="GBP">GBP (£)</option>
-              </select>
             </div>
           </div>
         </div>
