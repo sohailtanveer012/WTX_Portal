@@ -20,7 +20,6 @@ import { AdminReports } from './components/admin/AdminReports';
 import { AdminSettings } from './components/admin/AdminSettings';
 import { AdminNotifications } from './components/admin/AdminNotifications';
 import { AdminNewReferrals } from './components/admin/AdminNewReferrals';
-import { OnboardingModal } from './components/OnboardingModal';
 import { ReferralForm } from './components/ReferralForm';
 import { supabase } from './supabaseClient';
 import { fetchUnviewedInvestmentRequestsCount, fetchUnviewedDistributionRequestsCount, trackReferralClick } from './api/services';
@@ -32,21 +31,12 @@ function MainApp() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [showOnboarding, setShowOnboarding] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [unviewedNotificationsCount, setUnviewedNotificationsCount] = useState<number>(0);
   const [showReferralForm, setShowReferralForm] = useState(false);
   const [referralCode, setReferralCode] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Check if this is the first time logging in
-    const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
-    if (isAuthenticated && !isAdmin && !hasSeenOnboarding) {
-      setShowOnboarding(true);
-      localStorage.setItem('hasSeenOnboarding', 'true');
-    }
-  }, [isAuthenticated, isAdmin]);
 
   // Handle referral link clicks
   useEffect(() => {
@@ -278,12 +268,6 @@ function MainApp() {
         ) : activeTab === 'settings' ? (
           <Settings userProfile={userProfile} />
         ) : null}
-        <OnboardingModal
-          isOpen={showOnboarding}
-          onClose={() => setShowOnboarding(false)}
-          userProfile={userProfile}
-          setUserProfile={setUserProfile}
-        />
       </div>
     </div>
   );
