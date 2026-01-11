@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
@@ -11,6 +12,7 @@ import { Forum } from './components/Forum';
 import { Affiliates } from './components/Affiliates';
 import { Settings } from './components/Settings';
 import { Login } from './components/Login';
+import { ResetPassword } from './components/ResetPassword';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminProjects } from './components/admin/AdminProjects';
 import { AdminUsers } from './components/admin/AdminUsers';
@@ -23,7 +25,8 @@ import { ReferralForm } from './components/ReferralForm';
 import { supabase } from './supabaseClient';
 import { fetchUnviewedInvestmentRequestsCount, fetchUnviewedDistributionRequestsCount, trackReferralClick } from './api/services';
 
-function App() {
+// Main app content (everything except reset-password route)
+function MainApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -283,6 +286,16 @@ function App() {
         />
       </div>
     </div>
+  );
+}
+
+// Root App component with routing
+function App() {
+  return (
+    <Routes>
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="*" element={<MainApp />} />
+    </Routes>
   );
 }
 
