@@ -1064,6 +1064,146 @@ export async function markProfileEditRequestsAsViewed(requestIds?: (string | num
   }
 }
 
+// ==================== Bulletin Board / Newsletter ====================
+
+export interface BulletinBoardPost {
+  id: number;
+  title: string;
+  content: string;
+  project_id: string | null;
+  project_name: string | null;
+  author_id: string;
+  author_name: string;
+  is_pinned: boolean;
+  is_important: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateBulletinPostData {
+  title: string;
+  content: string;
+  project_id?: string | null;
+  project_name?: string | null;
+  is_pinned?: boolean;
+  is_important?: boolean;
+}
+
+// Fetch all bulletin board posts (for investors and admins)
+export async function fetchBulletinBoardPosts(projectId?: string | null): Promise<BulletinBoardPost[]> {
+  try {
+    let query = supabase
+      .from('bulletin_board_posts')
+      .select('*')
+      .order('is_pinned', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    // Filter by project if provided
+    if (projectId) {
+      query = query.eq('project_id', projectId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Error fetching bulletin board posts:', error);
+      return [];
+    }
+
+    return (data || []) as BulletinBoardPost[];
+  } catch (err) {
+    console.error('Error fetching bulletin board posts:', err);
+    return [];
+  }
+}
+
+// Create a new bulletin board post (admin only)
+export async function createBulletinBoardPost(
+  postData: CreateBulletinPostData,
+  authorId: string,
+  authorName: string
+): Promise<{ success: boolean; data?: BulletinBoardPost; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from('bulletin_board_posts')
+      .insert({
+        title: postData.title,
+        content: postData.content,
+        project_id: postData.project_id || null,
+        project_name: postData.project_name || null,
+        author_id: authorId,
+        author_name: authorName,
+        is_pinned: postData.is_pinned || false,
+        is_important: postData.is_important || false,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating bulletin board post:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data: data as BulletinBoardPost };
+  } catch (err) {
+    console.error('Error creating bulletin board post:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+// Update a bulletin board post (admin only)
+export async function updateBulletinBoardPost(
+  postId: number,
+  postData: Partial<CreateBulletinPostData>
+): Promise<{ success: boolean; data?: BulletinBoardPost; error?: string }> {
+  try {
+    const updateData: any = {};
+    if (postData.title !== undefined) updateData.title = postData.title;
+    if (postData.content !== undefined) updateData.content = postData.content;
+    if (postData.project_id !== undefined) updateData.project_id = postData.project_id || null;
+    if (postData.project_name !== undefined) updateData.project_name = postData.project_name || null;
+    if (postData.is_pinned !== undefined) updateData.is_pinned = postData.is_pinned;
+    if (postData.is_important !== undefined) updateData.is_important = postData.is_important;
+
+    const { data, error } = await supabase
+      .from('bulletin_board_posts')
+      .update(updateData)
+      .eq('id', postId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating bulletin board post:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data: data as BulletinBoardPost };
+  } catch (err) {
+    console.error('Error updating bulletin board post:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+// Delete a bulletin board post (admin only)
+export async function deleteBulletinBoardPost(postId: number): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('bulletin_board_posts')
+      .delete()
+      .eq('id', postId);
+
+    if (error) {
+      console.error('Error deleting bulletin board post:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Error deleting bulletin board post:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
 export async function updateProfileEditRequestStatus(
   requestId: string | number,
   status: 'approved' | 'rejected' | 'completed',

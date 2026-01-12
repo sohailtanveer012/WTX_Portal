@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, PieChart, FileText, Settings, Users, FolderOpen, LogOut, User, DollarSign, Book, MessageSquare, Bell, UserPlus, ArrowRightLeft } from 'lucide-react';
+import { Home, PieChart, FileText, Settings, Users, FolderOpen, LogOut, User, DollarSign, Book, MessageSquare, Bell, UserPlus, ArrowRightLeft, Newspaper } from 'lucide-react';
 import WTXLogo from '../assets/WTX-Logo.png';
 import { supabase } from '../supabaseClient';
 
@@ -41,6 +41,7 @@ export function Sidebar({ activeTab, setActiveTab, isAdmin, setIsAuthenticated, 
       { name: 'Users', icon: Users },
       { name: 'Notifications', icon: Bell },
       { name: 'New Referrals', icon: UserPlus },
+      { name: 'Bulletin Board', icon: Newspaper },
       { name: 'Forum', icon: MessageSquare },
       { name: 'Reports', icon: FileText },
       { name: 'Settings', icon: Settings },
@@ -63,6 +64,7 @@ export function Sidebar({ activeTab, setActiveTab, isAdmin, setIsAuthenticated, 
       { name: 'My Projects', icon: FolderOpen },
       { name: 'New Investments', icon: DollarSign },
       { name: 'Percentage Distribution', icon: ArrowRightLeft },
+      { name: 'Bulletin Board', icon: Newspaper },
       { name: 'Affiliates', icon: Users },
       { name: 'Reports', icon: FileText },
       { name: 'Knowledge Base', icon: Book },

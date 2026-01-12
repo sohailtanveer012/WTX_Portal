@@ -11,6 +11,7 @@ import { PercentageDistribution } from './components/PercentageDistribution';
 import { Forum } from './components/Forum';
 import { Affiliates } from './components/Affiliates';
 import { Settings } from './components/Settings';
+import { BulletinBoard } from './components/BulletinBoard';
 import { Login } from './components/Login';
 import { ResetPassword } from './components/ResetPassword';
 import { AdminDashboard } from './components/admin/AdminDashboard';
@@ -20,6 +21,7 @@ import { AdminReports } from './components/admin/AdminReports';
 import { AdminSettings } from './components/admin/AdminSettings';
 import { AdminNotifications } from './components/admin/AdminNotifications';
 import { AdminNewReferrals } from './components/admin/AdminNewReferrals';
+import { AdminBulletinBoard } from './components/admin/AdminBulletinBoard';
 import { ReferralForm } from './components/ReferralForm';
 import { supabase } from './supabaseClient';
 import { fetchUnviewedInvestmentRequestsCount, fetchUnviewedDistributionRequestsCount, fetchUnviewedProfileEditRequestsCount, trackReferralClick } from './api/services';
@@ -241,6 +243,9 @@ function MainApp() {
               }}
             />
           )}
+          {activeTab === 'bulletin board' && (
+            <AdminBulletinBoard userProfile={userProfile} />
+          )}
           {activeTab === 'forum' && (
             <Forum userProfile={userProfile} />
           )}
@@ -280,6 +285,8 @@ function MainApp() {
           <Investments userProfile={userProfile} />
         ) : activeTab === 'percentage distribution' ? (
           <PercentageDistribution userProfile={userProfile} />
+        ) : activeTab === 'bulletin board' ? (
+          <BulletinBoard userProfile={userProfile} />
         ) : activeTab === 'settings' ? (
           <Settings userProfile={userProfile} />
         ) : null}
