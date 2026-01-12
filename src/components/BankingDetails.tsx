@@ -1,15 +1,19 @@
-import React from 'react';
-import { CreditCard, Building2, Hash, Eye, EyeOff, Edit } from 'lucide-react';
+import React, { useState } from 'react';
+import { CreditCard, Building2, Hash, Eye, EyeOff, Edit, Loader2 } from 'lucide-react';
+import { createProfileEditRequest } from '../api/services';
 
 interface BankingDetailsProps {
   bank?: string;
   routing?: string;
   account?: string;
+  email?: string;
+  name?: string;
 }
 
-export function BankingDetails({ bank, routing, account }: BankingDetailsProps) {
+export function BankingDetails({ bank, routing, account, email, name }: BankingDetailsProps) {
   const [showAccount, setShowAccount] = React.useState(false);
   const [showRouting, setShowRouting] = React.useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Mask sensitive information
   const maskAccount = (acc?: string) => {
@@ -106,14 +110,53 @@ export function BankingDetails({ bank, routing, account }: BankingDetailsProps) 
       <div className="mt-6 pt-6 border-t border-white/10">
         <button
           type="button"
-          onClick={() => {
-            // Handle edit request - could show modal, contact support, etc.
-            alert('Edit request submitted. Our team will contact you shortly to update your banking details.');
+          onClick={async () => {
+            if (!email || !name) {
+              alert('Error: Email and name are required to submit an edit request.');
+              return;
+            }
+
+            setIsSubmitting(true);
+            try {
+              const currentData = {
+                bank: bank || '',
+                routing: routing || '',
+                account: account || ''
+              };
+
+              const result = await createProfileEditRequest(
+                email,
+                name,
+                'banking_info',
+                currentData
+              );
+
+              if (result.success) {
+                alert('Edit request submitted successfully! Our team will contact you shortly to update your banking details.');
+              } else {
+                alert(`Failed to submit edit request: ${result.error || 'Please try again.'}`);
+              }
+            } catch (err) {
+              console.error('Error submitting edit request:', err);
+              alert('Failed to submit edit request. Please try again.');
+            } finally {
+              setIsSubmitting(false);
+            }
           }}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 hover:bg-blue-500/20 transition-colors font-medium"
+          disabled={isSubmitting}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 hover:bg-blue-500/20 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <Edit className="h-5 w-5" />
-          Request Edit
+          {isSubmitting ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Submitting...
+            </>
+          ) : (
+            <>
+              <Edit className="h-5 w-5" />
+              Request Edit
+            </>
+          )}
         </button>
       </div>
     </div>

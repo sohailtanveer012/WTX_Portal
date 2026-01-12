@@ -22,7 +22,7 @@ import { AdminNotifications } from './components/admin/AdminNotifications';
 import { AdminNewReferrals } from './components/admin/AdminNewReferrals';
 import { ReferralForm } from './components/ReferralForm';
 import { supabase } from './supabaseClient';
-import { fetchUnviewedInvestmentRequestsCount, fetchUnviewedDistributionRequestsCount, trackReferralClick } from './api/services';
+import { fetchUnviewedInvestmentRequestsCount, fetchUnviewedDistributionRequestsCount, fetchUnviewedProfileEditRequestsCount, trackReferralClick } from './api/services';
 
 // Main app content (everything except reset-password route)
 function MainApp() {
@@ -83,9 +83,10 @@ function MainApp() {
           // Fetch unviewed notifications count for admin (both investment and distribution requests)
           Promise.all([
             fetchUnviewedInvestmentRequestsCount(),
-            fetchUnviewedDistributionRequestsCount()
-          ]).then(([investmentCount, distributionCount]) => {
-            setUnviewedNotificationsCount(investmentCount + distributionCount);
+            fetchUnviewedDistributionRequestsCount(),
+            fetchUnviewedProfileEditRequestsCount()
+          ]).then(([investmentCount, distributionCount, editRequestCount]) => {
+            setUnviewedNotificationsCount(investmentCount + distributionCount + editRequestCount);
           });
         }
       }
@@ -97,13 +98,14 @@ function MainApp() {
   useEffect(() => {
     if (!isAdmin || !isAuthenticated) return;
 
-    // Initial fetch (both investment and distribution requests)
+    // Initial fetch (investment, distribution, and edit requests)
     const fetchAllCounts = () => {
       Promise.all([
         fetchUnviewedInvestmentRequestsCount(),
-        fetchUnviewedDistributionRequestsCount()
-      ]).then(([investmentCount, distributionCount]) => {
-        setUnviewedNotificationsCount(investmentCount + distributionCount);
+        fetchUnviewedDistributionRequestsCount(),
+        fetchUnviewedProfileEditRequestsCount()
+      ]).then(([investmentCount, distributionCount, editRequestCount]) => {
+        setUnviewedNotificationsCount(investmentCount + distributionCount + editRequestCount);
       });
     };
 
@@ -132,9 +134,21 @@ function MainApp() {
       )
       .subscribe();
 
+    const editRequestSubscription = supabase
+      .channel('profile_edit_requests_count_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profile_edit_requests' },
+        () => {
+          fetchAllCounts();
+        }
+      )
+      .subscribe();
+
     return () => {
       investmentSubscription.unsubscribe();
       distributionSubscription.unsubscribe();
+      editRequestSubscription.unsubscribe();
     };
   }, [isAdmin, isAuthenticated]);
 
@@ -211,9 +225,10 @@ function MainApp() {
                 // Refresh unviewed count when requests are marked as viewed
                 Promise.all([
                   fetchUnviewedInvestmentRequestsCount(),
-                  fetchUnviewedDistributionRequestsCount()
-                ]).then(([investmentCount, distributionCount]) => {
-                  setUnviewedNotificationsCount(investmentCount + distributionCount);
+                  fetchUnviewedDistributionRequestsCount(),
+                  fetchUnviewedProfileEditRequestsCount()
+                ]).then(([investmentCount, distributionCount, editRequestCount]) => {
+                  setUnviewedNotificationsCount(investmentCount + distributionCount + editRequestCount);
                 });
               }}
             />

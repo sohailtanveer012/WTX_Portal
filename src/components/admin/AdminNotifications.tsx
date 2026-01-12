@@ -6,8 +6,12 @@ import {
   markDistributionRequestsAsViewed,
   updateDistributionRequestStatus,
   fetchAllDistributionRequests,
+  fetchAllProfileEditRequests,
+  markProfileEditRequestsAsViewed,
+  updateProfileEditRequestStatus,
   type DistributionRequest,
-  type DistributionRecipient
+  type DistributionRecipient,
+  type ProfileEditRequest
 } from '../../api/services';
 
 interface InvestmentRequest {
@@ -30,7 +34,7 @@ interface AdminNotificationsProps {
   onMarkAsViewed?: () => void;
 }
 
-type RequestType = 'investment' | 'distribution';
+type RequestType = 'investment' | 'distribution' | 'edit_request';
 
 export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) {
   const [activeTab, setActiveTab] = useState<RequestType>('investment');
@@ -45,6 +49,11 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
   const [adminNotes, setAdminNotes] = useState('');
   const [editedRecipients, setEditedRecipients] = useState<DistributionRecipient[]>([]);
   const [validationErrors, setValidationErrors] = useState<Record<number, string[]>>({});
+  
+  // Profile edit requests state
+  const [profileEditRequests, setProfileEditRequests] = useState<ProfileEditRequest[]>([]);
+  const [selectedProfileEditRequest, setSelectedProfileEditRequest] = useState<ProfileEditRequest | null>(null);
+  const [editRequestAdminNotes, setEditRequestAdminNotes] = useState('');
   
   // Common state
   const [loading, setLoading] = useState(true);
@@ -87,15 +96,28 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
     }
   }, []);
 
+  // Fetch profile edit requests
+  const fetchProfileEditRequests = useCallback(async () => {
+    try {
+      const data = await fetchAllProfileEditRequests();
+      setProfileEditRequests(data);
+    } catch (err) {
+      console.error('Error fetching profile edit requests:', err);
+      setProfileEditRequests([]);
+    }
+  }, []);
+
   // Load data when tab changes
   useEffect(() => {
     setLoading(true);
     if (activeTab === 'investment') {
       fetchInvestmentRequests().finally(() => setLoading(false));
-    } else {
+    } else if (activeTab === 'distribution') {
       fetchDistributionRequests().finally(() => setLoading(false));
+    } else if (activeTab === 'edit_request') {
+      fetchProfileEditRequests().finally(() => setLoading(false));
     }
-  }, [activeTab, fetchInvestmentRequests, fetchDistributionRequests]);
+  }, [activeTab, fetchInvestmentRequests, fetchDistributionRequests, fetchProfileEditRequests]);
 
   // Mark requests as viewed and set up real-time subscriptions
   useEffect(() => {
@@ -124,7 +146,7 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
     return () => {
       subscription.unsubscribe();
     };
-    } else {
+    } else if (activeTab === 'distribution') {
       markDistributionRequestsAsViewed().then(() => {
         if (onMarkAsViewed) {
           onMarkAsViewed();
@@ -149,8 +171,33 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
       return () => {
         subscription.unsubscribe();
       };
+    } else if (activeTab === 'edit_request') {
+      markProfileEditRequestsAsViewed().then(() => {
+        if (onMarkAsViewed) {
+          onMarkAsViewed();
+        }
+      });
+
+      const subscription = supabase
+        .channel('profile_edit_requests_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'profile_edit_requests'
+          },
+          () => {
+            fetchProfileEditRequests();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        subscription.unsubscribe();
+      };
     }
-  }, [activeTab, fetchInvestmentRequests, fetchDistributionRequests, onMarkAsViewed]);
+  }, [activeTab, fetchInvestmentRequests, fetchDistributionRequests, fetchProfileEditRequests, onMarkAsViewed]);
 
   // Update investment request status
   const handleInvestmentStatusUpdate = async (requestId: string | number, newStatus: 'approved' | 'rejected') => {
@@ -334,7 +381,43 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
 
   const pendingInvestmentCount = investmentRequests.filter(r => r.status === 'pending').length;
   const pendingDistributionCount = distributionRequests.filter(r => r.status === 'pending').length;
-  const totalPendingCount = pendingInvestmentCount + pendingDistributionCount;
+  const pendingProfileEditCount = profileEditRequests.filter(r => r.status === 'pending').length;
+  const totalPendingCount = pendingInvestmentCount + pendingDistributionCount + pendingProfileEditCount;
+
+  // Filter profile edit requests
+  const filteredProfileEditRequests = profileEditRequests.filter(request => {
+    const matchesSearch = 
+      request.investor_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      request.investor_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      request.request_type.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'all' || request.status === statusFilter;
+    
+    return matchesSearch && matchesStatus;
+  });
+
+  // Handle profile edit request status update
+  const handleProfileEditRequestStatusUpdate = async (requestId: string | number, newStatus: 'approved' | 'rejected' | 'completed') => {
+    try {
+      const result = await updateProfileEditRequestStatus(
+        requestId,
+        newStatus,
+        editRequestAdminNotes.trim() || undefined
+      );
+      
+      if (result.success) {
+        await fetchProfileEditRequests();
+        setSelectedProfileEditRequest(null);
+        setEditRequestAdminNotes('');
+        alert(`Edit request ${newStatus} successfully.`);
+      } else {
+        alert(`Failed to update request status: ${result.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Error updating profile edit request status:', err);
+      alert('Failed to update request status');
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -441,6 +524,27 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
               </span>
             )}
           </button>
+          <button
+            onClick={() => {
+              setActiveTab('edit_request');
+              setSelectedProfileEditRequest(null);
+              setSearchTerm('');
+              setStatusFilter('all');
+            }}
+            className={`flex-1 px-4 py-3 rounded-xl transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'edit_request'
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <User className="h-5 w-5" />
+            <span>Edit Requests</span>
+            {pendingProfileEditCount > 0 && (
+              <span className="px-2 py-0.5 bg-yellow-500 text-white text-xs rounded-full">
+                {pendingProfileEditCount}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Filters */}
@@ -449,7 +553,7 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
             <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
             <input
               type="text"
-              placeholder={`Search by investor, project${activeTab === 'investment' ? ', or company' : ''}...`}
+              placeholder={`Search by investor${activeTab === 'investment' ? ', project, or company' : activeTab === 'edit_request' ? ' or request type' : ' or project'}...`}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2 w-full bg-card-gradient text-white rounded-xl border border-[var(--border-color)] focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1263,6 +1367,185 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
                           >
                             <XCircle className="h-5 w-5" />
                             <span>Reject Request</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Profile Edit Requests List */}
+        {activeTab === 'edit_request' && (
+          <>
+            {filteredProfileEditRequests.length > 0 ? (
+              <div className="space-y-4">
+                {filteredProfileEditRequests.map((request) => (
+                  <div
+                    key={request.id}
+                    className="bg-card-gradient rounded-2xl p-6 hover-neon-glow border border-[var(--border-color)] cursor-pointer"
+                    onClick={() => setSelectedProfileEditRequest(request)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-3 mb-4">
+                          <div className="p-2 rounded-lg bg-purple-500/10">
+                            <User className="h-5 w-5 text-purple-400" />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-lg font-semibold text-white">
+                              {request.request_type === 'personal_info' ? 'Personal Information' : 'Banking Information'} Edit Request
+                            </h3>
+                            <p className="text-sm text-gray-400 mt-1">
+                              Request from {request.investor_name}
+                            </p>
+                          </div>
+                          {getStatusBadge(request.status)}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+                          <div className="flex items-center space-x-2 text-sm">
+                            <User className="h-4 w-4 text-gray-400" />
+                            <span className="text-gray-300">{request.investor_name}</span>
+                          </div>
+                          <div className="flex items-center space-x-2 text-sm">
+                            <Mail className="h-4 w-4 text-gray-400" />
+                            <span className="text-gray-300">{request.investor_email}</span>
+                          </div>
+                          <div className="flex items-center space-x-2 text-sm">
+                            <CreditCard className="h-4 w-4 text-gray-400" />
+                            <span className="text-gray-300 capitalize">{request.request_type.replace('_', ' ')}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 mt-4 text-xs text-gray-400">
+                          <Calendar className="h-3 w-3" />
+                          <span>Requested on {new Date(request.created_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-card-gradient rounded-2xl p-12 text-center">
+                <User className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-400 text-lg">
+                  {searchTerm || statusFilter !== 'all'
+                    ? 'No edit requests match your filters'
+                    : 'No edit requests yet'
+                  }
+                </p>
+              </div>
+            )}
+
+            {/* Profile Edit Request Detail Modal */}
+            {selectedProfileEditRequest && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="bg-card-gradient rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-[var(--border-color)]">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-2xl font-bold text-white">Profile Edit Request Details</h2>
+                    <button
+                      onClick={() => setSelectedProfileEditRequest(null)}
+                      className="text-gray-400 hover:text-white transition-colors"
+                    >
+                      <X className="h-6 w-6" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-lg font-semibold text-white mb-4">
+                        {selectedProfileEditRequest.request_type === 'personal_info' ? 'Personal Information' : 'Banking Information'} Edit Request
+                      </h3>
+                      {getStatusBadge(selectedProfileEditRequest.status)}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="text-sm text-gray-400">Investor Name</label>
+                        <p className="text-white font-medium mt-1">{selectedProfileEditRequest.investor_name}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400">Email</label>
+                        <p className="text-white font-medium mt-1">{selectedProfileEditRequest.investor_email}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400">Request Type</label>
+                        <p className="text-white font-medium mt-1 capitalize">{selectedProfileEditRequest.request_type.replace('_', ' ')}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400">Request Date</label>
+                        <p className="text-white font-medium mt-1">
+                          {new Date(selectedProfileEditRequest.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-400 mb-3 block">Current Data</label>
+                      <div className="p-4 bg-white/5 rounded-xl border border-white/10">
+                        {selectedProfileEditRequest.current_data && Object.keys(selectedProfileEditRequest.current_data).length > 0 ? (
+                          <div className="space-y-3">
+                            {Object.entries(selectedProfileEditRequest.current_data).map(([key, value]) => (
+                              value && (
+                                <div key={key} className="flex justify-between items-start">
+                                  <span className="text-sm text-gray-400 capitalize">{key.replace(/_/g, ' ')}:</span>
+                                  <span className="text-sm text-white font-medium ml-4 text-right">
+                                    {key === 'ssn' || key === 'account' || key === 'routing' 
+                                      ? '****' + String(value).slice(-4)
+                                      : String(value)
+                                    }
+                                  </span>
+                                </div>
+                              )
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400">No current data available</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedProfileEditRequest.admin_notes && (
+                      <div>
+                        <label className="text-sm text-gray-400 mb-2 block">Admin Notes</label>
+                        <div className="p-4 bg-white/5 rounded-xl border border-white/10">
+                          <p className="text-sm text-white">{selectedProfileEditRequest.admin_notes}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedProfileEditRequest.status === 'pending' && (
+                      <>
+                        <div>
+                          <label className="text-sm text-gray-400 mb-2 block">Admin Notes (Optional)</label>
+                          <textarea
+                            value={editRequestAdminNotes}
+                            onChange={(e) => setEditRequestAdminNotes(e.target.value)}
+                            placeholder="Add notes about this request..."
+                            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            rows={4}
+                          />
+                        </div>
+
+                        <div className="flex gap-3 pt-4 border-t border-white/10">
+                          <button
+                            onClick={() => handleProfileEditRequestStatusUpdate(selectedProfileEditRequest.id, 'approved')}
+                            className="flex-1 px-4 py-3 bg-green-500/10 text-green-400 rounded-xl border border-green-500/20 hover:bg-green-500/20 transition-colors font-medium"
+                          >
+                            <CheckCircle className="h-5 w-5 inline mr-2" />
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleProfileEditRequestStatusUpdate(selectedProfileEditRequest.id, 'rejected')}
+                            className="flex-1 px-4 py-3 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 hover:bg-red-500/20 transition-colors font-medium"
+                          >
+                            <XCircle className="h-5 w-5 inline mr-2" />
+                            Reject
                           </button>
                         </div>
                       </>

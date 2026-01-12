@@ -1,5 +1,6 @@
-import React from 'react';
-import { User, Calendar, MapPin, Building, CreditCard, Eye, EyeOff, Mail, Phone, Edit } from 'lucide-react';
+import React, { useState } from 'react';
+import { User, Calendar, MapPin, Building, CreditCard, Eye, EyeOff, Mail, Phone, Edit, Loader2 } from 'lucide-react';
+import { createProfileEditRequest } from '../api/services';
 
 interface PersonalInfoProps {
   name?: string;
@@ -13,6 +14,7 @@ interface PersonalInfoProps {
 
 export function PersonalInfo({ name, email, phone, dob, address, company, ssn }: PersonalInfoProps) {
   const [showSSN, setShowSSN] = React.useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Format date of birth
   const formatDate = (dateStr?: string) => {
@@ -159,14 +161,57 @@ export function PersonalInfo({ name, email, phone, dob, address, company, ssn }:
       <div className="mt-6 pt-6 border-t border-white/10">
         <button
           type="button"
-          onClick={() => {
-            // Handle edit request - could show modal, contact support, etc.
-            alert('Edit request submitted. Our team will contact you shortly to update your personal information.');
+          onClick={async () => {
+            if (!email || !name) {
+              alert('Error: Email and name are required to submit an edit request.');
+              return;
+            }
+
+            setIsSubmitting(true);
+            try {
+              const currentData = {
+                name: name || '',
+                email: email || '',
+                phone: phone || '',
+                dob: dob || '',
+                address: address || '',
+                company: company || '',
+                ssn: ssn || ''
+              };
+
+              const result = await createProfileEditRequest(
+                email,
+                name,
+                'personal_info',
+                currentData
+              );
+
+              if (result.success) {
+                alert('Edit request submitted successfully! Our team will contact you shortly to update your personal information.');
+              } else {
+                alert(`Failed to submit edit request: ${result.error || 'Please try again.'}`);
+              }
+            } catch (err) {
+              console.error('Error submitting edit request:', err);
+              alert('Failed to submit edit request. Please try again.');
+            } finally {
+              setIsSubmitting(false);
+            }
           }}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20 hover:bg-purple-500/20 transition-colors font-medium"
+          disabled={isSubmitting}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20 hover:bg-purple-500/20 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <Edit className="h-5 w-5" />
-          Request Edit
+          {isSubmitting ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Submitting...
+            </>
+          ) : (
+            <>
+              <Edit className="h-5 w-5" />
+              Request Edit
+            </>
+          )}
         </button>
       </div>
     </div>

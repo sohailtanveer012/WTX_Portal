@@ -138,6 +138,8 @@ export function Settings({ userProfile }: { userProfile?: UserProfile }) {
               bank={investorBank}
               routing={investorRouting}
               account={investorAccount}
+              email={investorEmail}
+              name={investorName}
             />
           </div>
         </div>

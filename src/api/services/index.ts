@@ -946,6 +946,156 @@ export async function markDistributionRequestsAsViewed(requestIds?: (string | nu
   }
 }
 
+// Profile Edit Requests
+export interface ProfileEditRequest {
+  id: string | number;
+  investor_id?: number;
+  investor_email: string;
+  investor_name: string;
+  request_type: 'personal_info' | 'banking_info';
+  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  current_data: Record<string, unknown> | null;
+  viewed: boolean;
+  viewed_at?: string;
+  admin_notes?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export async function createProfileEditRequest(
+  investorEmail: string,
+  investorName: string,
+  requestType: 'personal_info' | 'banking_info',
+  currentData: Record<string, unknown>
+): Promise<{ success: boolean; data?: ProfileEditRequest; error?: string }> {
+  try {
+    // Insert without .select() first to avoid triggering SELECT policies
+    // Similar to how percentage_distribution_requests handles it
+    const { error: insertError } = await supabase
+      .from('profile_edit_requests')
+      .insert([{
+        investor_email: investorEmail,
+        investor_name: investorName,
+        request_type: requestType,
+        current_data: currentData,
+        status: 'pending',
+        viewed: false
+      }]);
+
+    if (insertError) {
+      console.error('Error creating profile edit request:', insertError);
+      return { success: false, error: insertError.message };
+    }
+
+    // Return success without the inserted data to avoid SELECT policy issues
+    // The data isn't needed immediately anyway
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error creating profile edit request:', err);
+    return { success: false, error: err.message || 'Failed to create edit request' };
+  }
+}
+
+export async function fetchAllProfileEditRequests(): Promise<ProfileEditRequest[]> {
+  try {
+    const { data, error } = await supabase
+      .from('profile_edit_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching profile edit requests:', error);
+      return [];
+    }
+
+    return (data || []) as ProfileEditRequest[];
+  } catch (err) {
+    console.error('Error fetching profile edit requests:', err);
+    return [];
+  }
+}
+
+export async function fetchUnviewedProfileEditRequestsCount(): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from('profile_edit_requests')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .or('viewed.is.null,viewed.eq.false');
+
+    if (error) {
+      console.error('Error fetching unviewed profile edit requests count:', error);
+      return 0;
+    }
+
+    return count || 0;
+  } catch (err) {
+    console.error('Error fetching unviewed profile edit requests count:', err);
+    return 0;
+  }
+}
+
+export async function markProfileEditRequestsAsViewed(requestIds?: (string | number)[]): Promise<void> {
+  try {
+    if (requestIds && requestIds.length > 0) {
+      // Mark specific requests as viewed
+      const { error } = await supabase
+        .from('profile_edit_requests')
+        .update({ viewed: true, viewed_at: new Date().toISOString() })
+        .in('id', requestIds);
+      
+      if (error) {
+        console.error('Error marking profile edit requests as viewed:', error);
+      }
+    } else {
+      // Mark all pending requests as viewed
+      const { error } = await supabase
+        .from('profile_edit_requests')
+        .update({ viewed: true, viewed_at: new Date().toISOString() })
+        .eq('status', 'pending')
+        .or('viewed.is.null,viewed.eq.false');
+      
+      if (error) {
+        console.error('Error marking all pending profile edit requests as viewed:', error);
+      }
+    }
+  } catch (err) {
+    console.error('Error marking profile edit requests as viewed:', err);
+  }
+}
+
+export async function updateProfileEditRequestStatus(
+  requestId: string | number,
+  status: 'approved' | 'rejected' | 'completed',
+  adminNotes?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const updateData: { status: string; admin_notes?: string; updated_at: string } = {
+      status,
+      updated_at: new Date().toISOString()
+    };
+
+    if (adminNotes !== undefined) {
+      updateData.admin_notes = adminNotes;
+    }
+
+    const { error } = await supabase
+      .from('profile_edit_requests')
+      .update(updateData)
+      .eq('id', requestId);
+
+    if (error) {
+      console.error('Error updating profile edit request status:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error updating profile edit request status:', err);
+    return { success: false, error: err.message || 'Failed to update request status' };
+  }
+}
+
 export async function sendPasswordSetupEmailsToNewUsers(
   newUserEmails: string[]
 ): Promise<{ success: boolean; error?: string }> {
