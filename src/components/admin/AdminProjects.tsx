@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Plus, Search, Filter, ArrowUpDown } from 'lucide-react';
 import { NewProjectModal } from './NewProjectModal';
 import { ProjectView } from './ProjectView';
 import { ProjectHistory } from './ProjectHistory';
-import { fetchProjectsWithInvestorCount } from '../../api/services';
+import { fetchProjectsWithInvestorCount, fetchProjectInvestors } from '../../api/services';
 
 // Type for project data from RPC
 type ProjectWithInvestorCount = {
@@ -16,6 +16,12 @@ type ProjectWithInvestorCount = {
   total_invested_amount?: number;
   monthly_revenue?: number;
   completion_date?: string;
+};
+
+// Type for project ROI data
+type ProjectROIData = {
+  project_id: number;
+  roi: number;
 };
 
 export function AdminProjects() {
@@ -33,6 +39,8 @@ export function AdminProjects() {
   const [showMonthSelector, setShowMonthSelector] = useState(false);
   const [projectToView, setProjectToView] = useState<any>(null);
   const [historyProject, setHistoryProject] = useState<any>(null);
+  const [projectROIData, setProjectROIData] = useState<Map<number, number>>(new Map());
+  const [loadingROI, setLoadingROI] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -56,6 +64,58 @@ export function AdminProjects() {
     return () => { mounted = false; };
   }, []);
 
+  // Fetch ROI data for all projects
+  useEffect(() => {
+    if (projects.length === 0) return;
+    
+    let mounted = true;
+    (async () => {
+      setLoadingROI(true);
+      const roiMap = new Map<number, number>();
+      
+      // Fetch ROI data for each project in parallel
+      const roiPromises = projects.map(async (project) => {
+        try {
+          const projectId = project.project_id;
+          const investors = await fetchProjectInvestors(projectId);
+          
+          // Calculate total investment and total payout for this project
+          let totalInvestment = 0;
+          let totalPayout = 0;
+          
+          investors.forEach((inv: any) => {
+            // Sum investment amounts (use invested_amount or investment_amount)
+            const investment = Number(inv.invested_amount || inv.investment_amount || 0);
+            totalInvestment += investment;
+            
+            // Sum payout amounts
+            const payout = Number(inv.payout_amount || 0);
+            totalPayout += payout;
+          });
+          
+          // Calculate ROI: ((Total Payout - Total Investment) / Total Investment) * 100
+          const roi = totalInvestment > 0 
+            ? ((totalPayout - totalInvestment) / totalInvestment) * 100 
+            : 0;
+          
+          roiMap.set(projectId, roi);
+        } catch (error) {
+          console.error(`Error calculating ROI for project ${project.project_id}:`, error);
+          roiMap.set(project.project_id, 0);
+        }
+      });
+      
+      await Promise.all(roiPromises);
+      
+      if (mounted) {
+        setProjectROIData(roiMap);
+        setLoadingROI(false);
+      }
+    })();
+    
+    return () => { mounted = false; };
+  }, [projects]);
+
 
   const handleAddProject = async (projectData: any) => {
     // Refresh projects list from database after adding
@@ -77,22 +137,33 @@ export function AdminProjects() {
     return matchesSearch && matchesStatus;
   });
 
-  const sortedProjects = [...filteredProjects].sort((a, b) => {
-    if (!sortConfig.key) return 0;
-    
-    let aValue = a[sortConfig.key as keyof ProjectWithInvestorCount];
-    let bValue = b[sortConfig.key as keyof ProjectWithInvestorCount];
-    
-    // Handle special cases for numeric values
-    if (sortConfig.key === 'total_investment' || sortConfig.key === 'monthly_revenue') {
-      aValue = parseFloat(String(aValue || 0));
-      bValue = parseFloat(String(bValue || 0));
-    }
-    
-    if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-    if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-    return 0;
-  });
+  const sortedProjects = useMemo(() => {
+    return [...filteredProjects].sort((a, b) => {
+      if (!sortConfig.key) return 0;
+      
+      let aValue: any;
+      let bValue: any;
+      
+      // Handle ROI sorting separately since it's stored in a Map
+      if (sortConfig.key === 'roi') {
+        aValue = projectROIData.get(a.project_id) ?? 0;
+        bValue = projectROIData.get(b.project_id) ?? 0;
+      } else {
+        aValue = a[sortConfig.key as keyof ProjectWithInvestorCount];
+        bValue = b[sortConfig.key as keyof ProjectWithInvestorCount];
+        
+        // Handle special cases for numeric values
+        if (sortConfig.key === 'total_investment') {
+          aValue = parseFloat(String(aValue || 0));
+          bValue = parseFloat(String(bValue || 0));
+        }
+      }
+      
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filteredProjects, sortConfig, projectROIData]);
 
   const handleSort = (key: string) => {
     setSortConfig({
@@ -273,15 +344,15 @@ export function AdminProjects() {
                       <ArrowUpDown className="h-4 w-4" />
                     </button>
                   </th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">
+                  {/* <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">
                     <button
-                      onClick={() => handleSort('monthly_revenue')}
+                      onClick={() => handleSort('roi')}
                       className="flex items-center space-x-1 hover:text-gray-300"
                     >
-                      <span>Monthly Revenue</span>
+                      <span>ROI %</span>
                       <ArrowUpDown className="h-4 w-4" />
                     </button>
-                  </th>
+                  </th> */}
                 </tr>
               </thead>
               <tbody>
@@ -328,9 +399,19 @@ export function AdminProjects() {
                     <td className="px-6 py-4 text-gray-300">
                       {project.total_invested_amount ? `$${project.total_invested_amount.toLocaleString()}` : 'N/A'}
                     </td>
-                    <td className="px-6 py-4 text-gray-300">
-                      {project.monthly_revenue ? `$${project.monthly_revenue.toLocaleString()}` : 'N/A'}
-                    </td>
+                    {/* <td className="px-6 py-4 text-gray-300">
+                      {loadingROI ? (
+                        <span className="text-gray-500">Calculating...</span>
+                      ) : (() => {
+                        const roi = projectROIData.get(project.project_id) ?? 0;
+                        const roiDisplay = roi !== 0 ? `${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%` : 'N/A';
+                        return (
+                          <span className={roi > 0 ? 'text-green-400' : roi < 0 ? 'text-red-400' : 'text-gray-400'}>
+                            {roiDisplay}
+                          </span>
+                        );
+                      })()}
+                    </td> */}
                   </tr>
                 ))}
                 {sortedProjects.length === 0 && (

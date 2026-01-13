@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Users, FolderOpen, FileText, TrendingUp, BarChart3, AlertCircle, DollarSign, Activity, ChevronRight, Sun, Percent } from 'lucide-react';
+import { Users, FolderOpen, FileText, TrendingUp, BarChart3, AlertCircle, DollarSign, Activity, ChevronRight, Sun } from 'lucide-react';
 import { AreaChart, Area, BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from 'recharts';
 import { fetchProjectsWithInvestorCount, fetchTotalRevenueMonthly, fetchProjectRevenueByMonth, fetchTotalRevenueAllProjects, fetchInvestorReturnSummary } from '../../api/services';
 
@@ -12,11 +12,11 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
   const [loadingStats, setLoadingStats] = useState(true);
   const [totalRevenueAllMonths, setTotalRevenueAllMonths] = useState<number | null>(null);
   const [selectedPerfMetric, setSelectedPerfMetric] = useState<'monthly' | 'total'>('monthly');
+  const [investorReturns, setInvestorReturns] = useState<any[]>([]);
+  const [loadingInvestorReturns, setLoadingInvestorReturns] = useState<boolean>(false);
   const [perfMonth, setPerfMonth] = useState<string>(new Date().toISOString().slice(0, 7));
   const [perfData, setPerfData] = useState<Array<{ name: string; value: number }>>([]);
   const [loadingPerf, setLoadingPerf] = useState<boolean>(false);
-  const [investorReturns, setInvestorReturns] = useState<any[]>([]);
-  const [loadingInvestorReturns, setLoadingInvestorReturns] = useState<boolean>(false);
 
   useEffect(() => {
     let mounted = true;
@@ -42,20 +42,31 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
     return () => { mounted = false; };
   }, []);
 
+  // Load investor performance summary (for Positive/Negative Returns sections)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setLoadingInvestorReturns(true);
+      try {
+        const rows = await fetchInvestorReturnSummary();
+        if (!mounted) return;
+        setInvestorReturns(rows);
+      } catch (e) {
+        console.error('AdminDashboard: failed to fetch investor return summary', e);
+        if (!mounted) return;
+        setInvestorReturns([]);
+      } finally {
+        if (mounted) setLoadingInvestorReturns(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   const activeProjects = projects.filter(p => (p.status || '').toLowerCase() === 'active');
   const activeProjectsCount = activeProjects.length;
   const activeInvestors = activeProjects.reduce((sum, p) => sum + (Number(p.investor_count) || 0), 0);
   const totalRevenueFallback = projects.reduce((sum, p) => sum + (Number(p.monthly_revenue) || 0), 0);
   const totalRevenue = (totalRevenueAllMonths ?? totalRevenueFallback);
-
-  // Calculate overall ROI % from investor returns
-  const roiPercentage = useMemo(() => {
-    if (!investorReturns || investorReturns.length === 0) return 0;
-    const totalInvestment = investorReturns.reduce((sum, inv) => sum + (Number(inv.total_investment) || 0), 0);
-    const totalPayout = investorReturns.reduce((sum, inv) => sum + (Number(inv.total_payout) || 0), 0);
-    if (totalInvestment === 0) return 0;
-    return ((totalPayout / totalInvestment) * 100);
-  }, [investorReturns]);
 
   const stats = [
     {
@@ -75,14 +86,6 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
       color: 'purple',
     },
     {
-      label: 'ROI %',
-      value: loadingInvestorReturns ? '...' : `${roiPercentage >= 0 ? '+' : ''}${roiPercentage.toFixed(1)}%`,
-      change: '',
-      trend: 'up',
-      icon: Percent,
-      color: 'green',
-    },
-    {
       label: 'Total Revenue',
       value: loadingStats ? '...' : `$${(totalRevenue || 0).toLocaleString()}`,
       change: '',
@@ -92,25 +95,6 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
     }
   ];
 
-  // Load investor performance summary
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      setLoadingInvestorReturns(true);
-      try {
-        const rows = await fetchInvestorReturnSummary();
-        if (!mounted) return;
-        setInvestorReturns(rows);
-      } catch (e) {
-        console.error('AdminDashboard: failed to fetch investor return summary', e);
-        if (!mounted) return;
-        setInvestorReturns([]);
-      } finally {
-        if (mounted) setLoadingInvestorReturns(false);
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
 
   // Load Project Performance data based on selection
   useEffect(() => {
