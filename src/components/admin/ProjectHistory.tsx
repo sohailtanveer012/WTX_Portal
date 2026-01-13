@@ -4,6 +4,7 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianG
 import { fetchProjectInvestorsByMonth, fetchProjectRevenueByMonth, fetchInvestorsByProject } from '../../api/services';
 import { ProjectPayout } from './ProjectPayout';
 import { AddInvestorModal } from './AddInvestorModal';
+import { supabase } from '../../supabaseClient';
 
 type ProjectLike = Record<string, unknown> | string | number;
 
@@ -31,27 +32,60 @@ type HistoryRow = {
   totalPayout: number;
 };
 
-// Build a month list from startDate to now; if missing, default to last 12 months
-function buildMonthList(startDate?: string) {
-  const months: Array<{ key: string; label: string }> = [];
-  const end = new Date();
-  let current: Date;
+// Fetch all months that have revenue data for a project
+async function fetchAvailableMonths(projectId: string | number): Promise<Array<{ key: string; label: string }>> {
+  try {
+    // Try different possible table names
+    const tableNames = ['monthly_revenue', 'revenue', 'project_revenue', 'revenues'];
+    let data: any[] = [];
+    let error: any = null;
 
-  if (startDate) {
-    const start = new Date(startDate);
-    current = new Date(start.getFullYear(), start.getMonth(), 1);
-  } else {
-    current = new Date(end.getFullYear(), end.getMonth() - 11, 1);
+    for (const tableName of tableNames) {
+      const result = await supabase
+        .from(tableName)
+        .select('year, month')
+        .eq('project_id', projectId)
+        .order('year', { ascending: false })
+        .order('month', { ascending: false });
+
+      if (!result.error && result.data && result.data.length > 0) {
+        data = result.data;
+        break;
+      }
+      if (result.error && !result.error.message.includes('relation') && !result.error.message.includes('does not exist')) {
+        error = result.error;
+      }
+    }
+
+    if (error) {
+      console.error('Error fetching available months:', error);
+      return [];
+    }
+
+    if (!data || data.length === 0) {
+      return [];
+    }
+
+    // Convert to month keys and labels
+    const months = data.map((row: any) => {
+      const year = row.year;
+      const month = String(row.month).padStart(2, '0');
+      const key = `${year}-${month}`;
+      const date = new Date(year, parseInt(month) - 1, 1);
+      const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      return { key, label };
+    });
+
+    // Remove duplicates and sort (most recent first)
+    const uniqueMonths = Array.from(
+      new Map(months.map(m => [m.key, m])).values()
+    ).sort((a, b) => b.key.localeCompare(a.key));
+
+    return uniqueMonths;
+  } catch (err) {
+    console.error('Failed to fetch available months:', err);
+    return [];
   }
-
-  while (current <= end) {
-    const key = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`;
-    const label = current.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    months.push({ key, label });
-    current.setMonth(current.getMonth() + 1);
-  }
-
-  return months.reverse(); // most recent first
 }
 
 export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryProps) {
@@ -75,8 +109,16 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
     const load = async () => {
       if (!actualProjectId) return;
       setIsLoading(true);
-      const months = buildMonthList(project?.startDate);
       try {
+        // Fetch only months that have revenue data
+        const months = await fetchAvailableMonths(String(actualProjectId));
+        
+        if (months.length === 0) {
+          setHistory([]);
+          setIsLoading(false);
+          return;
+        }
+
         const rows = await Promise.all(
           months.map(async ({ key, label }) => {
             const [revenue, investors] = await Promise.all([
@@ -107,7 +149,7 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
     };
 
     load();
-  }, [actualProjectId, project?.startDate]);
+  }, [actualProjectId]);
 
   // Get unique years from history
   const availableYears = useMemo(() => {
