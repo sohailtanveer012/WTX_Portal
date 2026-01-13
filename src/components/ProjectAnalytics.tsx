@@ -63,6 +63,10 @@ export function ProjectAnalytics({ project, onBack }: ProjectAnalyticsProps) {
   const averageMonthlyPayout = project.averageMonthlyPayoutAmount || 0;
   const currentValue = totalPayouts; // Sum of all payout amounts for this project
   const returnPct = investedAmount > 0 ? ((totalPayouts / investedAmount) * 100).toFixed(1) : '0.0';
+  // Calculate ROI Percentage: ((Total Payout - Total Investment) / Total Investment) * 100
+  const roiPercentage = investedAmount > 0 
+    ? (((totalPayouts - investedAmount) / investedAmount) * 100).toFixed(1)
+    : '0.0';
   const percentageOwned = projectData[0]?.percentage_owned || 0;
 
   // Helper function to get month name
@@ -146,10 +150,10 @@ export function ProjectAnalytics({ project, onBack }: ProjectAnalyticsProps) {
       change: `+${returnPct}%`,
     },
     {
-      label: 'Average Monthly Payout',
-      value: `$${Math.round(averageMonthlyPayout).toLocaleString()}`,
-      icon: DollarSign,
-      color: 'yellow',
+      label: 'ROI Percentage',
+      value: `${Number(roiPercentage) >= 0 ? '+' : ''}${roiPercentage}%`,
+      icon: TrendingUp,
+      color: Number(roiPercentage) >= 0 ? 'green' : 'red',
     },
     {
       label: 'Your Share',
@@ -449,8 +453,10 @@ export function ProjectAnalytics({ project, onBack }: ProjectAnalyticsProps) {
               <p className="text-lg font-semibold text-green-400">+{returnPct}%</p>
             </div>
             <div>
-              <p className="text-sm text-gray-400">Average Monthly Payout</p>
-              <p className="text-lg font-semibold text-green-400">${Math.round(averageMonthlyPayout).toLocaleString()}</p>
+              <p className="text-sm text-gray-400">ROI Percentage</p>
+              <p className={`text-lg font-semibold ${Number(roiPercentage) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {Number(roiPercentage) >= 0 ? '+' : ''}{roiPercentage}%
+              </p>
             </div>
             <div>
               <p className="text-sm text-gray-400">Ownership Percentage</p>
