@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Users, FolderOpen, FileText, TrendingUp, BarChart3, AlertCircle, DollarSign, Activity, ChevronRight, Sun } from 'lucide-react';
 import { AreaChart, Area, BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from 'recharts';
-import { fetchProjectsWithInvestorCount, fetchTotalRevenueMonthly, fetchProjectRevenueByMonth, fetchTotalRevenueAllProjects, fetchInvestorReturnSummary } from '../../api/services';
+import { fetchProjectsWithInvestorCount, fetchTotalRevenueMonthly, fetchProjectRevenueByMonth, fetchTotalRevenueAllProjects, fetchInvestorReturnSummary, fetchTotalInvestorsCount } from '../../api/services';
 
 export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?: (user: any) => void, userProfile?: any }) {
   // Get current time to display appropriate greeting
@@ -11,6 +11,7 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
   const [projects, setProjects] = useState<any[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
   const [totalRevenueAllMonths, setTotalRevenueAllMonths] = useState<number | null>(null);
+  const [totalInvestorsCount, setTotalInvestorsCount] = useState<number>(0);
   const [selectedPerfMetric, setSelectedPerfMetric] = useState<'monthly' | 'total'>('monthly');
   const [investorReturns, setInvestorReturns] = useState<any[]>([]);
   const [loadingInvestorReturns, setLoadingInvestorReturns] = useState<boolean>(false);
@@ -23,14 +24,16 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
     (async () => {
       setLoadingStats(true);
       try {
-        const [data, monthlyTotals] = await Promise.all([
+        const [data, monthlyTotals, investorsCount] = await Promise.all([
           fetchProjectsWithInvestorCount(),
           fetchTotalRevenueMonthly(),
+          fetchTotalInvestorsCount(),
         ]);
         if (!mounted) return;
         setProjects(Array.isArray(data) ? data : []);
         const summed = (monthlyTotals || []).reduce((sum: number, row: any) => sum + (Number(row.total_revenue) || 0), 0);
         setTotalRevenueAllMonths(summed);
+        setTotalInvestorsCount(investorsCount);
       } catch (e) {
         console.error('AdminDashboard: failed to fetch projects', e);
         if (!mounted) return;
@@ -64,14 +67,13 @@ export function AdminDashboard({ onViewProfile, userProfile }: { onViewProfile?:
 
   const activeProjects = projects.filter(p => (p.status || '').toLowerCase() === 'active');
   const activeProjectsCount = activeProjects.length;
-  const activeInvestors = activeProjects.reduce((sum, p) => sum + (Number(p.investor_count) || 0), 0);
   const totalRevenueFallback = projects.reduce((sum, p) => sum + (Number(p.monthly_revenue) || 0), 0);
   const totalRevenue = (totalRevenueAllMonths ?? totalRevenueFallback);
 
   const stats = [
     {
-      label: 'Active Investors',
-      value: loadingStats ? '...' : activeInvestors.toLocaleString(),
+      label: 'Total Investors',
+      value: loadingStats ? '...' : totalInvestorsCount.toLocaleString(),
       change: '',
       trend: 'up',
       icon: Users,

@@ -109,6 +109,18 @@ export async function fetchProjectsWithInvestorCount() {
   return data ?? [];
 }
 
+// Fetch total count of investors from Investors table
+export async function fetchTotalInvestorsCount(): Promise<number> {
+  const { data, error } = await supabase
+    .rpc('get_total_investors_count');
+
+  if (error) {
+    console.error('Error fetching total investors count:', error);
+    return 0;
+  }
+  return data ?? 0;
+}
+
 // Fetch all investors (users with role 'investor') for selection UIs
 export type SimpleInvestor = { id: string; name: string; email: string };
 export async function fetchAllInvestors(): Promise<SimpleInvestor[]> {
