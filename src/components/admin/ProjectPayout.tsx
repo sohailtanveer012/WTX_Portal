@@ -55,6 +55,7 @@ export function ProjectPayout({ projectId, onBack, project, investors: projectIn
   const [totalBarrels, setTotalBarrels] = useState('');
   const [pricePerBarrel, setPricePerBarrel] = useState('');
   const [expenses, setExpenses] = useState('');
+  const [severanceTaxPercentage, setSeveranceTaxPercentage] = useState('4.6'); // Default 4.6%
   const [sendEmails, setSendEmails] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [editingInvestor, setEditingInvestor] = useState<Investor | null>(null);
@@ -104,7 +105,8 @@ export function ProjectPayout({ projectId, onBack, project, investors: projectIn
 
       // Step 1: Calculate gross revenue from total barrels
       const grossRevenue = defaultBarrels * price;
-      const severanceTax = grossRevenue * 0.046;
+      const severanceTaxPercent = parseFloat(severanceTaxPercentage) || 4.6;
+      const severanceTax = grossRevenue * (severanceTaxPercent / 100);
       const netRevenue = grossRevenue - severanceTax;
       const investorPayout = netRevenue * 0.75;
       const companyRevenue = netRevenue * 0.25;
@@ -140,7 +142,7 @@ export function ProjectPayout({ projectId, onBack, project, investors: projectIn
         investorDistributions
       });
     }
-  }, [totalBarrels, pricePerBarrel, expenses, investors]);
+  }, [totalBarrels, pricePerBarrel, expenses, severanceTaxPercentage, investors]);
 
   const handleInvestorEdit = (investor: Investor, customBaseBarrels: number | undefined) => {
     setInvestors(current => 
@@ -170,6 +172,7 @@ export function ProjectPayout({ projectId, onBack, project, investors: projectIn
       // Step 1: Call the Supabase RPC to insert/update revenue
       const expensesAmount = parseFloat(expenses) || 0;
       const severanceTaxAmount = calculations.severanceTax || 0;
+      const severanceTaxPercent = parseFloat(severanceTaxPercentage) || 4.6;
       const productionAmount = parseFloat(totalBarrels) || 0; // total barrels produced
       const costPerBoAmount = parseFloat(pricePerBarrel) || 0; // price per barrel
 
@@ -181,6 +184,7 @@ export function ProjectPayout({ projectId, onBack, project, investors: projectIn
           input_total_revenue: calculations.investorPayout - expensesAmount, // Investor Payout minus expenses
           input_expenses: expensesAmount,
           input_st: severanceTaxAmount,
+          input_st_percentage: severanceTaxPercent,
           input_production: productionAmount,
           input_cost_per_bo: costPerBoAmount,
         });
@@ -294,20 +298,39 @@ export function ProjectPayout({ projectId, onBack, project, investors: projectIn
               </div>
             </div>
           </div>
-          <div className="mt-6">
-            <label className="block text-sm font-medium text-gray-400 mb-2">
-              Expenses
-            </label>
-            <div className="relative">
-              <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-              <input
-                type="number"
-                value={expenses}
-                onChange={(e) => setExpenses(e.target.value)}
-                className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter expenses (e.g., 800)"
-                step="0.01"
-              />
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                Severance Tax Percentage (%)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={severanceTaxPercentage}
+                  onChange={(e) => setSeveranceTaxPercentage(e.target.value)}
+                  className="pl-4 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter percentage (e.g., 4.6)"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                Expenses
+              </label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                <input
+                  type="number"
+                  value={expenses}
+                  onChange={(e) => setExpenses(e.target.value)}
+                  className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter expenses (e.g., 800)"
+                  step="0.01"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -323,7 +346,7 @@ export function ProjectPayout({ projectId, onBack, project, investors: projectIn
                 </p>
               </div>
               <div className="p-4 rounded-xl bg-white/5">
-                <p className="text-sm text-gray-400">Severance Tax (4.6%)</p>
+                <p className="text-sm text-gray-400">Severance Tax ({parseFloat(severanceTaxPercentage) || 4.6}%)</p>
                 <p className="text-xl font-semibold text-red-400">
                   -${calculations.severanceTax.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </p>
