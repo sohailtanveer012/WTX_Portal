@@ -32,7 +32,7 @@ type HistoryRow = {
   totalPayout: number;
   costPerBo?: number;
   production?: number;
-  severanceTax?: number;
+  severanceTaxPercentage?: number;
 };
 
 // Fetch all months that have revenue data for a project
@@ -141,7 +141,7 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
               totalPayout,
               costPerBo: revenueInfo?.cost_per_bo || 0,
               production: revenueInfo?.production || 0,
-              severanceTax: revenueInfo?.st || 0,
+              severanceTaxPercentage: revenueInfo?.st_percentage || 0,
             };
           })
         );
@@ -470,7 +470,7 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
                           </span>
                           <span className="flex items-center">
                             <DollarSign className="h-4 w-4 mr-1" />
-                            Severance Tax: ${row.severanceTax ? row.severanceTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A'}
+                            Severance Tax: {row.severanceTaxPercentage ? `${row.severanceTaxPercentage.toFixed(2)}%` : 'N/A'}
                           </span>
                         </div>
                       </div>

@@ -197,8 +197,9 @@ export async function fetchProjectRevenueByMonthWithInfo(projectId: string | num
   const [year, monthNum] = month.split('-');
   console.log('Calling RPC with:', { p_project_id: projectId, p_month: parseInt(monthNum), p_year: parseInt(year) });
   
+  // Use get_project_revenue_by_month which now returns st_percentage
   const { data, error } = await supabase
-    .rpc('get_project_revenue_by_month_with_info', {
+    .rpc('get_project_revenue_by_month', {
       p_project_id: projectId,
       p_month: parseInt(monthNum),
       p_year: parseInt(year)
@@ -216,7 +217,7 @@ export async function fetchProjectRevenueByMonthWithInfo(projectId: string | num
       total_revenue: data[0].total_revenue || 0,
       cost_per_bo: data[0].cost_per_bo || 0,
       production: data[0].production || 0,
-      st: data[0].st || 0,
+      st_percentage: data[0].st_percentage || 0,
     };
   }
   return null;
