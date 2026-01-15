@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Calendar, DollarSign, Users, History as HistoryIcon, Calculator, UserPlus } from 'lucide-react';
+import { ArrowLeft, Calendar, DollarSign, Users, History as HistoryIcon, Calculator, UserPlus, Droplets, TrendingUp } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
-import { fetchProjectInvestorsByMonth, fetchProjectRevenueByMonth, fetchInvestorsByProject } from '../../api/services';
+import { fetchProjectInvestorsByMonth, fetchProjectRevenueByMonth, fetchProjectRevenueByMonthWithInfo, fetchInvestorsByProject } from '../../api/services';
 import { ProjectPayout } from './ProjectPayout';
 import { AddInvestorModal } from './AddInvestorModal';
 import { supabase } from '../../supabaseClient';
@@ -30,6 +30,9 @@ type HistoryRow = {
   investors: InvestorLike[];
   investorCount: number;
   totalPayout: number;
+  costPerBo?: number;
+  production?: number;
+  severanceTax?: number;
 };
 
 // Fetch all months that have revenue data for a project
@@ -121,8 +124,8 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
 
         const rows = await Promise.all(
           months.map(async ({ key, label }) => {
-            const [revenue, investors] = await Promise.all([
-              fetchProjectRevenueByMonth(String(actualProjectId), key),
+            const [revenueInfo, investors] = await Promise.all([
+              fetchProjectRevenueByMonthWithInfo(String(actualProjectId), key),
               fetchProjectInvestorsByMonth(String(actualProjectId), key),
             ]);
             const totalPayout = investors.reduce(
@@ -132,10 +135,13 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
             return {
               key,
               label,
-              revenue: Number(revenue || 0),
+              revenue: Number(revenueInfo?.total_revenue || 0),
               investors,
               investorCount: investors.length,
               totalPayout,
+              costPerBo: revenueInfo?.cost_per_bo || 0,
+              production: revenueInfo?.production || 0,
+              severanceTax: revenueInfo?.st || 0,
             };
           })
         );
@@ -453,6 +459,18 @@ export function ProjectHistory({ projectId, project, onBack }: ProjectHistoryPro
                           <span className="flex items-center">
                             <Users className="h-4 w-4 mr-1" />
                             Investors: {row.investorCount}
+                          </span>
+                          <span className="flex items-center">
+                            <TrendingUp className="h-4 w-4 mr-1" />
+                            Barrel Price: ${row.costPerBo ? row.costPerBo.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A'}
+                          </span>
+                          <span className="flex items-center">
+                            <Droplets className="h-4 w-4 mr-1" />
+                            Total Barrels: {row.production ? row.production.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A'}
+                          </span>
+                          <span className="flex items-center">
+                            <DollarSign className="h-4 w-4 mr-1" />
+                            Severance Tax: ${row.severanceTax ? row.severanceTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A'}
                           </span>
                         </div>
                       </div>

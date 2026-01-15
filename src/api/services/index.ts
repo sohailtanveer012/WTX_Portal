@@ -186,6 +186,42 @@ export async function fetchProjectRevenueByMonth(projectId: string | number, mon
   return data || null;
 }
 
+export async function fetchProjectRevenueByMonthWithInfo(projectId: string | number, month: string) {
+  console.log('fetchProjectRevenueByMonthWithInfo called with projectId:', projectId, 'month:', month);
+  
+  if (!projectId) {
+    console.error('Invalid project ID:', projectId);
+    return null;
+  }
+  
+  const [year, monthNum] = month.split('-');
+  console.log('Calling RPC with:', { p_project_id: projectId, p_month: parseInt(monthNum), p_year: parseInt(year) });
+  
+  const { data, error } = await supabase
+    .rpc('get_project_revenue_by_month_with_info', {
+      p_project_id: projectId,
+      p_month: parseInt(monthNum),
+      p_year: parseInt(year)
+    });
+
+  if (error) {
+    console.error('Error fetching project revenue with info by month:', error);
+    return null;
+  }
+  
+  console.log('Successfully fetched project revenue with info:', data);
+  // Return the first row if data exists
+  if (data && data.length > 0) {
+    return {
+      total_revenue: data[0].total_revenue || 0,
+      cost_per_bo: data[0].cost_per_bo || 0,
+      production: data[0].production || 0,
+      st: data[0].st || 0,
+    };
+  }
+  return null;
+}
+
 // Sum of revenues across all projects and all months (expects an RPC on the DB)
 export async function fetchTotalRevenueAllProjectsAllMonths(): Promise<number | null> {
   try {
