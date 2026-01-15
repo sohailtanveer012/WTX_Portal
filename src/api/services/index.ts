@@ -155,6 +155,65 @@ export async function fetchAllInvestors(): Promise<SimpleInvestor[]> {
   return mapped;
 }
 
+// Fetch all investors from Investors table (for adding to projects)
+export interface Investor {
+  id: number;
+  investor_id: number;
+  investor_name: string;
+  investor_email: string;
+  investor_phone?: string;
+}
+
+export async function fetchInvestorsFromInvestorsTable(): Promise<Investor[]> {
+  const { data, error } = await supabase
+    .from('Investors')
+    .select('id, Investor_name, Investor_email, Investor_phone')
+    .order('Investor_name', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching investors from Investors table:', error);
+    return [];
+  }
+
+  return (data || []).map((inv: any) => ({
+    id: inv.id,
+    investor_id: inv.id,
+    investor_name: inv.Investor_name || '',
+    investor_email: inv.Investor_email || '',
+    investor_phone: inv.Investor_phone || null,
+  }));
+}
+
+// Add an existing investor to a project
+export interface AddExistingInvestorToProjectParams {
+  investor_id: number;
+  project_id: string;
+  invested_amount: number;
+  percentage_owned: number;
+}
+
+export async function addExistingInvestorToProject(params: AddExistingInvestorToProjectParams) {
+  const { data, error } = await supabase
+    .from('Investments-Test')
+    .insert([
+      {
+        investor_id: params.investor_id,
+        project_id: params.project_id,
+        invested_amount: params.invested_amount,
+        percentage_owned: params.percentage_owned,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error adding existing investor to project:', error);
+    throw error;
+  }
+
+  return data;
+}
+
 export async function fetchProjectRevenueByMonth(projectId: string | number, month: string) {
   console.log('fetchProjectRevenueByMonth called with projectId:', projectId, 'month:', month);
   

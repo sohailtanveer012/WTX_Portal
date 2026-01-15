@@ -4,6 +4,7 @@ import { ProjectPayout } from './ProjectPayout';
 import { ProjectFundingView } from './ProjectFundingView';
 import { ProjectHistory } from './ProjectHistory';
 import { AddInvestorModal } from './AddInvestorModal';
+import { AddExistingInvestorModal } from './AddExistingInvestorModal';
 import { fetchProjectInvestorsByMonth, fetchInvestorsByProject, fetchProjectRevenueByMonth, adminUpdateProjectName } from '../../api/services';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
@@ -43,6 +44,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
   const [previousMonthRevenue, setPreviousMonthRevenue] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showAddInvestorModal, setShowAddInvestorModal] = useState(false);
+  const [showAddExistingInvestorModal, setShowAddExistingInvestorModal] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [payoutMonth, setPayoutMonth] = useState(new Date().toISOString().slice(0, 7));
   const [payoutInvestors, setPayoutInvestors] = useState<ProjectInvestor[]>([]);
@@ -439,13 +441,22 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
               <Calculator className="h-5 w-5 mr-2" />
               Calculate a new monthly Payout
             </button>
-            <button
-              onClick={() => setShowAddInvestorModal(true)}
-              className="flex items-center px-4 py-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 hover:bg-blue-500/20 transition-colors"
-            >
-              <UserPlus className="h-5 w-5 mr-2" />
-              Add New Investor
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowAddInvestorModal(true)}
+                className="flex items-center px-4 py-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20 hover:bg-blue-500/20 transition-colors"
+              >
+                <UserPlus className="h-5 w-5 mr-2" />
+                Add New Investor
+              </button>
+              <button
+                onClick={() => setShowAddExistingInvestorModal(true)}
+                className="flex items-center px-4 py-2 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+              >
+                <UserPlus className="h-5 w-5 mr-2" />
+                Add Existing Investor
+              </button>
+            </div>
           </div>
         </div>
 
@@ -962,6 +973,17 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
       <AddInvestorModal
         isOpen={showAddInvestorModal}
         onClose={() => setShowAddInvestorModal(false)}
+        onSuccess={() => {
+          // Refresh the page to reload investors list
+          window.location.reload();
+        }}
+        preselectedProjectId={String(project.id)}
+        preselectedProjectName={project.name}
+      />
+
+      <AddExistingInvestorModal
+        isOpen={showAddExistingInvestorModal}
+        onClose={() => setShowAddExistingInvestorModal(false)}
         onSuccess={() => {
           // Refresh the page to reload investors list
           window.location.reload();
