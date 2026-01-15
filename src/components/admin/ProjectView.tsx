@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Users, DollarSign, TrendingUp, TrendingDown, Droplets, Calendar, MapPin, Calculator, FileText, Download, UserPlus, Edit2, Check, X, Loader2 } from 'lucide-react';
 import { ProjectPayout } from './ProjectPayout';
 import { ProjectFundingView } from './ProjectFundingView';
@@ -21,6 +21,7 @@ type ProjectInvestor = {
   percentage_owned: number;
   payout_amount: number;
   investment_amount?: number;
+  invested_amount?: number;
 };
 
 export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProps) {
@@ -43,6 +44,9 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
   const [showHistory, setShowHistory] = useState(false);
   const [showAddInvestorModal, setShowAddInvestorModal] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
+  const [payoutMonth, setPayoutMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [payoutInvestors, setPayoutInvestors] = useState<ProjectInvestor[]>([]);
+  const [isLoadingPayoutInvestors, setIsLoadingPayoutInvestors] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [isUpdatingName, setIsUpdatingName] = useState(false);
 
@@ -82,9 +86,23 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
     }
   };
 
+  // Create a lookup map for base investors by investor_id and email for efficient matching
+  const baseInvestorsMap = useMemo(() => {
+    const map = new Map();
+    baseProjectInvestors.forEach((investor: any) => {
+      if (investor.investor_id) {
+        map.set(String(investor.investor_id), investor);
+        map.set(Number(investor.investor_id), investor);
+      }
+      if (investor.investor_email) {
+        map.set(investor.investor_email.toLowerCase().trim(), investor);
+      }
+    });
+    return map;
+  }, [baseProjectInvestors]);
 
-  // Calculate total payout amount from investors
-  const totalPayoutAmount = projectInvestors.reduce((sum, investor) => sum + (investor.payout_amount || 0), 0);
+  // Calculate total payout amount from payout investors
+  const totalPayoutAmount = payoutInvestors.reduce((sum, investor) => sum + (investor.payout_amount || 0), 0);
 
   // Calculate percentage growth/decline
   const getGrowthPercentage = () => {
@@ -94,57 +112,54 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
     return ((monthlyRevenue - previousMonthRevenue) / previousMonthRevenue) * 100;
   };
 
-  // Fetch investor data when component mounts or project changes
+  // Fetch all investors for the project (regardless of month)
   useEffect(() => {
-    const fetchInvestors = async () => {
+    const fetchAllInvestors = async () => {
       if (typeof projectId === 'object') {
-        // Try different possible field names for project ID
         const actualProjectId = projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID;
 
-        console.log('Extracted actualProjectId:', actualProjectId);
-        console.log('Type of actualProjectId:', typeof actualProjectId);
-
         if (actualProjectId) {
-          console.log('Fetching investors for project ID:', actualProjectId, 'month:', selectedMonth);
-
-          // Use the project ID as-is (can be UUID string or number)
           const projectIdToUse = String(actualProjectId);
-
           setIsLoadingInvestors(true);
           try {
-            // First, get base investor data (for payout calculation)
             const baseInvestors = await fetchInvestorsByProject(projectIdToUse);
             setBaseProjectInvestors(baseInvestors);
-
-            // Then, try to get month-specific data (with payouts if they exist)
-            const monthInvestors = await fetchProjectInvestorsByMonth(projectIdToUse, selectedMonth);
-
-            // Only show month-specific data (if it exists), don't show anything if no data for that month
-            setProjectInvestors(monthInvestors);
-            setCurrentInvestorPage(1); // Reset to first page when new data loads
-
-            console.log('Base investors:', baseInvestors);
-            console.log('Month investors:', monthInvestors);
-
-            if (monthInvestors.length > 0) {
-              console.log('Sample investor data structure:', monthInvestors[0]);
-              console.log('Available fields in investor:', Object.keys(monthInvestors[0]));
-            }
+            setCurrentInvestorPage(1);
           } catch (error) {
-            console.error('Error fetching project investors:', error);
-            setProjectInvestors([]);
+            console.error('Error fetching all investors:', error);
             setBaseProjectInvestors([]);
           } finally {
             setIsLoadingInvestors(false);
           }
-        } else {
-          console.error('No valid project ID found in project data:', projectId);
         }
       }
     };
+    fetchAllInvestors();
+  }, [projectId]);
 
-    fetchInvestors();
-  }, [projectId, selectedMonth]);
+  // Fetch payout investors for selected month
+  useEffect(() => {
+    const fetchPayoutInvestors = async () => {
+      if (typeof projectId === 'object') {
+        const actualProjectId = projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID;
+
+        if (actualProjectId) {
+          const projectIdToUse = String(actualProjectId);
+          setIsLoadingPayoutInvestors(true);
+          try {
+            const monthInvestors = await fetchProjectInvestorsByMonth(projectIdToUse, payoutMonth);
+            setPayoutInvestors(monthInvestors);
+          } catch (error) {
+            console.error('Error fetching payout investors:', error);
+            setPayoutInvestors([]);
+          } finally {
+            setIsLoadingPayoutInvestors(false);
+          }
+        }
+      }
+    };
+    fetchPayoutInvestors();
+  }, [projectId, payoutMonth]);
 
   // Fetch monthly revenue and previous month revenue when project or month changes
   useEffect(() => {
@@ -478,7 +493,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
               <div>
                 <p className="text-sm text-gray-400">
                   Total Payout Amount for {(() => {
-                    const [year, month] = selectedMonth.split('-');
+                    const [year, month] = payoutMonth.split('-');
                     return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
                   })()}
                 </p>
@@ -561,7 +576,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
           </div>
         </div>
 
-        {/* Investors Section */}
+        {/* Project Investors Section - All Investors */}
         <div className="bg-card-gradient rounded-2xl p-6 hover-neon-glow">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div className="flex items-center space-x-3">
@@ -569,79 +584,56 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
               <div>
                 <h2 className="text-xl font-semibold text-white">Project Investors</h2>
                 <p className="text-sm text-gray-400 mt-1">
-                  {projectInvestors.length} total investors for {(() => {
-                    const [year, month] = selectedMonth.split('-');
-                    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                  })()}
+                  {baseProjectInvestors.length} total investors for this project
                 </p>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
-              <input
-                type="month"
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-gray-400"
-                title="Select month to view investor payouts"
-              />
-
-              <select
-                value={selectedGroup}
-                onChange={(e) => setSelectedGroup(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-gray-400"
+            <div className="flex rounded-xl overflow-hidden border border-[var(--border-color)]">
+              <button
+                onClick={() => setSelectedInvestorView('list')}
+                className={`px-4 py-2 text-sm ${selectedInvestorView === 'list'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-card-gradient text-gray-400 hover:text-gray-300'
+                  }`}
               >
-                <option value="all">All Groups</option>
-                {/* Groups will be populated from real data */}
-              </select>
-              <div className="flex rounded-xl overflow-hidden border border-[var(--border-color)]">
-                <button
-                  onClick={() => setSelectedInvestorView('list')}
-                  className={`px-4 py-2 text-sm ${selectedInvestorView === 'list'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-card-gradient text-gray-400 hover:text-gray-300'
-                    }`}
-                >
-                  List View
-                </button>
-                <button
-                  onClick={() => setSelectedInvestorView('grid')}
-                  className={`px-4 py-2 text-sm ${selectedInvestorView === 'grid'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-card-gradient text-gray-400 hover:text-gray-300'
-                    }`}
-                >
-                  Grid View
-                </button>
-              </div>
+                List View
+              </button>
+              <button
+                onClick={() => setSelectedInvestorView('grid')}
+                className={`px-4 py-2 text-sm ${selectedInvestorView === 'grid'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-card-gradient text-gray-400 hover:text-gray-300'
+                  }`}
+              >
+                Grid View
+              </button>
             </div>
           </div>
 
           {selectedInvestorView === 'list' ? (
             <div>
-              {/* Pagination Calculations */}
               {(() => {
-                const totalInvestors = projectInvestors.length;
+                const totalInvestors = baseProjectInvestors.length;
                 const totalPages = Math.ceil(totalInvestors / investorsPerPage);
                 const startIndex = (currentInvestorPage - 1) * investorsPerPage;
                 const endIndex = Math.min(startIndex + investorsPerPage, totalInvestors);
-                const paginatedInvestors = projectInvestors.slice(startIndex, endIndex);
+                const paginatedInvestors = baseProjectInvestors.slice(startIndex, endIndex);
 
                 return (
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-white/10">
-                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investor</th>
+                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investor Name</th>
                           <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Email</th>
-                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Percentage</th>
-                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investment</th>
-                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Payout Amount</th>
+                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Percentage Owned</th>
+                          <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investment Amount</th>
                         </tr>
                       </thead>
                       <tbody>
                         {isLoadingInvestors ? (
                           <tr>
-                            <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                            <td colSpan={4} className="px-6 py-8 text-center text-gray-400">
                               Loading investors...
                             </td>
                           </tr>
@@ -655,9 +647,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                                       {investor.investor_name.split(' ').map(n => n[0]).join('')}
                                     </span>
                                   </div>
-                                  <div>
-                                    <div className="font-medium text-white">{investor.investor_name}</div>
-                                  </div>
+                                  <div className="font-medium text-white">{investor.investor_name}</div>
                                 </div>
                               </td>
                               <td className="px-6 py-4 text-gray-300">{investor.investor_email}</td>
@@ -667,18 +657,15 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                                 </span>
                               </td>
                               <td className="px-6 py-4 text-white">
-                                {investor.investment_amount ? `$${investor.investment_amount.toLocaleString()}` : 'N/A'}
-                              </td>
-                              <td className="px-6 py-4">
-                                <span className="font-medium text-green-400">
-                                  ${(investor.payout_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </span>
+                                {(investor.invested_amount ?? investor.investment_amount)
+                                  ? `$${(investor.invested_amount ?? investor.investment_amount ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                  : 'N/A'}
                               </td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                            <td colSpan={4} className="px-6 py-8 text-center text-gray-400">
                               No investors found for this project
                             </td>
                           </tr>
@@ -686,7 +673,6 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                       </tbody>
                     </table>
 
-                    {/* Pagination Controls */}
                     {totalInvestors > investorsPerPage && (
                       <div className="flex items-center justify-between px-6 py-4 border-t border-white/10">
                         <div className="text-sm text-gray-400">
@@ -729,8 +715,8 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                 <div className="col-span-full text-center text-gray-400 py-8">
                   Loading investors...
                 </div>
-              ) : projectInvestors.length > 0 ? (
-                projectInvestors.map((investor, index) => (
+              ) : baseProjectInvestors.length > 0 ? (
+                baseProjectInvestors.map((investor, index) => (
                   <div
                     key={investor.investor_id || index}
                     className="bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-colors"
@@ -755,15 +741,11 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                         <div>
                           <p className="text-sm text-gray-400">Investment Amount</p>
                           <p className="text-white">
-                            {investor.investment_amount ? `$${investor.investment_amount.toLocaleString()}` : 'N/A'}
+                            {(investor.invested_amount ?? investor.investment_amount)
+                              ? `$${(investor.invested_amount ?? investor.investment_amount ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : 'N/A'}
                           </p>
                         </div>
-                      </div>
-                      <div className="pt-3 border-t border-white/10">
-                        <p className="text-sm text-gray-400">Payout Amount</p>
-                        <p className="text-green-400 font-medium">
-                          ${(investor.payout_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </p>
                       </div>
                     </div>
                   </div>
@@ -775,6 +757,118 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
               )}
             </div>
           )}
+        </div>
+
+        {/* Investor Payouts Section */}
+        <div className="bg-card-gradient rounded-2xl p-6 hover-neon-glow">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div className="flex items-center space-x-3">
+              <DollarSign className="h-6 w-6 text-green-400" />
+              <div>
+                <h2 className="text-xl font-semibold text-white">Investor Payouts</h2>
+                <p className="text-sm text-gray-400 mt-1">
+                  Payout details for selected month
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-3">
+              <input
+                type="month"
+                value={payoutMonth}
+                onChange={(e) => setPayoutMonth(e.target.value)}
+                className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-gray-400"
+                title="Select month to view payout details"
+              />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investor Name</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Email</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Percentage Owned</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Investment Amount</th>
+                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Payout Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoadingPayoutInvestors ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                      <div className="flex items-center justify-center space-x-2">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        <span>Loading payout details...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : payoutInvestors.length > 0 ? (
+                  payoutInvestors.map((investor, index) => {
+                    // Look up investment amount from baseProjectInvestors (same source as Project Investors component)
+                    // Use the lookup map for efficient matching
+                    const baseInvestor = 
+                      (investor.investor_id && baseInvestorsMap.get(String(investor.investor_id))) ||
+                      (investor.investor_id && baseInvestorsMap.get(Number(investor.investor_id))) ||
+                      (investor.investor_email && baseInvestorsMap.get(investor.investor_email.toLowerCase().trim()));
+                    
+                    const investmentAmount = baseInvestor?.invested_amount ?? baseInvestor?.investment_amount;
+                    
+                    // Debug: Log if investment amount is not found
+                    if (!investmentAmount && baseProjectInvestors.length > 0) {
+                      console.log('Investment amount lookup failed:', {
+                        payoutInvestorId: investor.investor_id,
+                        payoutInvestorEmail: investor.investor_email,
+                        foundBaseInvestor: !!baseInvestor,
+                        baseInvestorsCount: baseProjectInvestors.length,
+                        mapSize: baseInvestorsMap.size,
+                      });
+                    }
+                    
+                    return (
+                      <tr key={investor.investor_id || index} className="border-b border-white/10 hover:bg-white/5">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center space-x-3">
+                            <div className="h-8 w-8 rounded-full bg-green-500/10 flex items-center justify-center border border-green-500/20">
+                              <span className="text-green-400 font-semibold text-sm">
+                                {investor.investor_name.split(' ').map(n => n[0]).join('')}
+                              </span>
+                            </div>
+                            <div className="font-medium text-white">{investor.investor_name}</div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-gray-300">{investor.investor_email}</td>
+                        <td className="px-6 py-4">
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-400 border border-green-500/20">
+                            {(investor.percentage_owned || 0).toFixed(2)}%
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-white">
+                          {investmentAmount
+                            ? `$${investmentAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : 'N/A'}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="font-medium text-green-400">
+                            ${(investor.payout_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                      No payout data available for {(() => {
+                        const [year, month] = payoutMonth.split('-');
+                        return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                      })()}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Reports Section */}
@@ -875,6 +969,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
         preselectedProjectId={String(project.id)}
         preselectedProjectName={project.name}
       />
+
     </main>
   );
 }
