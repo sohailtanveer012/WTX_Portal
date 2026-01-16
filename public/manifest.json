@@ -1,8 +1,9 @@
 {
   "name": "WTX Investor Portal",
-  "short_name": "WTX Portal",
+  "short_name": "WTX",
   "description": "WTX Oil Investor Management Portal",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#3b82f6",
