@@ -1790,7 +1790,7 @@ export async function adminUpdateProjectName(projectId: string | number, newName
   });
 
   if (error) {
-    console.error('Error updating project name:', error);
+    console.error('Error updating project namee:', error);
     throw error;
   }
 
