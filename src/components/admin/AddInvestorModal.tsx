@@ -28,6 +28,9 @@ export function AddInvestorModal({ isOpen, onClose, onSuccess, preselectedProjec
     email: '',
     phone: '',
     address: '',
+    city: '',
+    state: '',
+    zip: '',
     ssn: '',
     dob: '',
     companyName: '',
@@ -50,6 +53,9 @@ export function AddInvestorModal({ isOpen, onClose, onSuccess, preselectedProjec
         email: '',
         phone: '',
         address: '',
+        city: '',
+        state: '',
+        zip: '',
         ssn: '',
         dob: '',
         companyName: '',
@@ -105,6 +111,9 @@ export function AddInvestorModal({ isOpen, onClose, onSuccess, preselectedProjec
         phone: formData.phone || undefined,
         dob: formData.dob || undefined,
         address: formData.address || undefined,
+        city: formData.city || undefined,
+        state: formData.state || undefined,
+        zip: formData.zip || undefined,
         company: formData.companyName || undefined,
         ssn: formData.ssn || undefined,
         bank: formData.bank || undefined,
@@ -266,7 +275,55 @@ export function AddInvestorModal({ isOpen, onClose, onSuccess, preselectedProjec
                       value={formData.address}
                       onChange={(e) => handleChange('address', e.target.value)}
                       className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter full address"
+                      placeholder="Enter street address"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    City
+                  </label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={formData.city}
+                      onChange={(e) => handleChange('city', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter city"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    State
+                  </label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={formData.state}
+                      onChange={(e) => handleChange('state', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter state"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Zip Code
+                  </label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={formData.zip}
+                      onChange={(e) => handleChange('zip', e.target.value)}
+                      className="pl-10 pr-4 py-2 w-full bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter zip code"
                     />
                   </div>
                 </div>

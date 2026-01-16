@@ -1,9 +1,10 @@
 // AdminUsers.tsx
 import React, { useEffect, useState } from 'react';
-import { fetchInvestorsWithTotalProjectsAndInvestment } from '../../api/services';
-import { DollarSign } from 'lucide-react';
+import { fetchInvestorsWithTotalProjectsAndInvestment, getInvestorEmailById, updateInviteSentTimestamp, checkInviteSentStatusByInvestorId } from '../../api/services';
+import { DollarSign, Mail, Loader2, CheckCircle, AlertCircle, RotateCcw } from 'lucide-react';
 import { InvestorPortfolio } from './InvestorPortfolio';
 import { InvestorPersonalInfoModal } from './InvestorPersonalInfoModal';
+import { supabase } from '../../supabaseClient';
 
 // Narrow type for RPC result rows
 type InvestorRow = {
@@ -11,6 +12,7 @@ type InvestorRow = {
   investor_name: string;
   total_projects: number;
   total_payout_amount: number;
+  last_invite_sent_at?: string | null; // Track if invite was sent
 };
 
 type AdminUsersProps = {
@@ -28,6 +30,9 @@ export function AdminUsers({ initialSelectedUser }: AdminUsersProps) {
   const [viewInvestorId, setViewInvestorId] = useState<number | null>(null);
   const [viewPersonalInfoId, setViewPersonalInfoId] = useState<number | null>(null);
   const [viewPersonalInfoName, setViewPersonalInfoName] = useState<string>('');
+  const [sendingInvite, setSendingInvite] = useState<number | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState<number | null>(null);
+  const [inviteError, setInviteError] = useState<{ investorId: number; message: string } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -35,7 +40,18 @@ export function AdminUsers({ initialSelectedUser }: AdminUsersProps) {
     setIsLoading(true);
       const data = await fetchInvestorsWithTotalProjectsAndInvestment();
       if (mounted) {
-        setRows((data ?? []) as InvestorRow[]);
+        // Fetch invite status for each investor
+        const rowsWithInviteStatus = await Promise.all(
+          (data ?? []).map(async (row: Record<string, unknown>) => {
+            const investorId = Number(row.investor_id);
+            const inviteStatus = await checkInviteSentStatusByInvestorId(investorId);
+            return {
+              ...row,
+              last_invite_sent_at: inviteStatus.sentAt,
+            } as InvestorRow;
+          })
+        );
+        setRows(rowsWithInviteStatus);
         setPage(1);
       setIsLoading(false);
     }
@@ -54,6 +70,62 @@ export function AdminUsers({ initialSelectedUser }: AdminUsersProps) {
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const startIndex = (page - 1) * pageSize;
   const paginatedRows = filteredRows.slice(startIndex, startIndex + pageSize);
+
+  const handleSendInvite = async (investorId: number) => {
+    setSendingInvite(investorId);
+    setInviteSuccess(null);
+    setInviteError(null);
+
+    try {
+      // Get investor email
+      const email = await getInvestorEmailById(investorId);
+      
+      if (!email) {
+        setInviteError({ investorId, message: 'Could not find email for this investor.' });
+        setSendingInvite(null);
+        return;
+      }
+
+      // Send password reset email (same as forgot password)
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (resetError) {
+        setInviteError({ investorId, message: resetError.message || 'Failed to send invite email.' });
+        setSendingInvite(null);
+        return;
+      }
+
+      // Update invite timestamp in database
+      await updateInviteSentTimestamp(email);
+
+      // Update local state to reflect invite was sent
+      setRows(prevRows => 
+        prevRows.map(row => 
+          row.investor_id === investorId 
+            ? { ...row, last_invite_sent_at: new Date().toISOString() }
+            : row
+        )
+      );
+
+      // Success
+      setInviteSuccess(investorId);
+      setSendingInvite(null);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => {
+        setInviteSuccess(null);
+      }, 3000);
+    } catch (err) {
+      console.error('Error sending invite:', err);
+      setInviteError({ 
+        investorId, 
+        message: err instanceof Error ? err.message : 'An unexpected error occurred.' 
+      });
+      setSendingInvite(null);
+    }
+  };
 
   // If viewing a specific investor portfolio
   if (viewInvestorId !== null) {
@@ -111,7 +183,7 @@ export function AdminUsers({ initialSelectedUser }: AdminUsersProps) {
                         </span>
                       </td>
                       <td className="px-4 sm:px-6 py-4 text-white">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-2 flex-wrap gap-2">
                           <button
                             className="px-3 py-1.5 rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 text-sm"
                             title="View Portfolio"
@@ -129,6 +201,44 @@ export function AdminUsers({ initialSelectedUser }: AdminUsersProps) {
                           >
                             View Personal Info
                           </button>
+                          <button
+                            className={`px-3 py-1.5 rounded-lg border text-sm flex items-center space-x-1 disabled:opacity-50 disabled:cursor-not-allowed ${
+                              r.last_invite_sent_at
+                                ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
+                                : 'border-green-500/20 bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                            }`}
+                            title={r.last_invite_sent_at ? "Resend Invite" : "Send Invite"}
+                            onClick={() => handleSendInvite(r.investor_id)}
+                            disabled={sendingInvite === r.investor_id}
+                          >
+                            {sendingInvite === r.investor_id ? (
+                              <>
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                <span>Sending...</span>
+                              </>
+                            ) : inviteSuccess === r.investor_id ? (
+                              <>
+                                <CheckCircle className="h-3 w-3" />
+                                <span>Sent!</span>
+                              </>
+                            ) : r.last_invite_sent_at ? (
+                              <>
+                                <RotateCcw className="h-3 w-3" />
+                                <span>Resend Invite</span>
+                              </>
+                            ) : (
+                              <>
+                                <Mail className="h-3 w-3" />
+                                <span>Send Invite</span>
+                              </>
+                            )}
+                          </button>
+                          {inviteError?.investorId === r.investor_id && (
+                            <div className="flex items-center space-x-1 text-red-400 text-xs">
+                              <AlertCircle className="h-3 w-3" />
+                              <span>{inviteError.message}</span>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>

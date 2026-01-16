@@ -1796,3 +1796,66 @@ export async function adminUpdateProjectName(projectId: string | number, newName
 
   return data;
 }
+
+// Track invite sent to investor (update last_invite_sent_at in users table)
+export async function updateInviteSentTimestamp(email: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('users')
+      .update({ last_invite_sent_at: new Date().toISOString() })
+      .eq('email', email.toLowerCase());
+
+    if (error) {
+      console.error('Error updating invite timestamp:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Error updating invite timestamp:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to update invite timestamp';
+    return { success: false, error: errorMessage };
+  }
+}
+
+// Check if invite was sent to investor (by email)
+export async function checkInviteSentStatus(email: string): Promise<{ sent: boolean; sentAt: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('last_invite_sent_at')
+      .eq('email', email.toLowerCase())
+      .single();
+
+    if (error) {
+      console.error('Error checking invite status:', error);
+      return { sent: false, sentAt: null };
+    }
+
+    return {
+      sent: data?.last_invite_sent_at !== null,
+      sentAt: data?.last_invite_sent_at || null,
+    };
+  } catch (err) {
+    console.error('Error checking invite status:', err);
+    return { sent: false, sentAt: null };
+  }
+}
+
+// Check if invite was sent to investor (by investor_id)
+export async function checkInviteSentStatusByInvestorId(investorId: number): Promise<{ sent: boolean; sentAt: string | null }> {
+  try {
+    // First get the email
+    const email = await getInvestorEmailById(investorId);
+    
+    if (!email) {
+      return { sent: false, sentAt: null };
+    }
+
+    // Then check invite status
+    return await checkInviteSentStatus(email);
+  } catch (err) {
+    console.error('Error checking invite status by investor ID:', err);
+    return { sent: false, sentAt: null };
+  }
+}
