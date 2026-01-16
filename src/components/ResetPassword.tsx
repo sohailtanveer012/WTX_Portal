@@ -14,6 +14,7 @@ export function ResetPassword() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isValidatingToken, setIsValidatingToken] = useState(true);
+  const [hasRecoveryToken, setHasRecoveryToken] = useState(false);
 
   useEffect(() => {
     // Use window.location.hash because Supabase processes hash fragments from the URL
@@ -21,10 +22,35 @@ export function ResetPassword() {
     
     console.log('ResetPassword mounted, hash:', hash ? hash.substring(0, 50) + '...' : 'none');
     
-    // If there's no hash with access_token, the link is invalid
+    // Check if there's a recovery token in the hash
+    const hasRecovery = hash && (hash.includes('access_token') || hash.includes('type=recovery'));
+    setHasRecoveryToken(hasRecovery);
+    
+    // If there's no hash with access_token, check if user is already authenticated
+    // This might be a new user who was auto-signed in - they still need to set password
     if (!hash || !hash.includes('access_token')) {
-      setError('Invalid or expired reset link. Please request a new password reset.');
-      setIsValidatingToken(false);
+      // Check if user is authenticated but might need to set password (new user)
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session && session.user) {
+          // User is authenticated - check if they have a recovery token or are a new user
+          // Allow them to set password if they came from a reset/invite link
+          // Check URL params for recovery indicator
+          const urlParams = new URLSearchParams(window.location.search);
+          const isRecovery = urlParams.get('type') === 'recovery' || 
+                           window.location.href.includes('recovery') ||
+                           window.localStorage.getItem('password_reset_required') === 'true';
+          
+          if (isRecovery) {
+            // User came from recovery link - allow password reset
+            setIsValidatingToken(false);
+            return;
+          }
+        }
+        
+        // No valid recovery token and not authenticated - show error
+        setError('Invalid or expired reset link. Please request a new password reset.');
+        setIsValidatingToken(false);
+      });
       return;
     }
 
@@ -107,7 +133,7 @@ export function ResetPassword() {
       }
 
       if (session) {
-        // Session already exists
+        // Session already exists (user was auto-signed in from recovery link)
         sessionEstablished = true;
         try {
           const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -117,11 +143,11 @@ export function ResetPassword() {
             subscription.unsubscribe();
             return;
           }
-          console.log('Session already exists for:', user.email);
+          console.log('Session already exists for:', user.email, '- showing password form');
           setIsValidatingToken(false);
           subscription.unsubscribe();
           
-          // Clear the hash from URL for security
+          // Clear the hash from URL for security (but keep user on this page to set password)
           setTimeout(() => {
             if (window.location.hash) {
               window.history.replaceState(null, '', window.location.pathname);
@@ -248,7 +274,41 @@ export function ResetPassword() {
     }
   };
 
-  if (isValidatingToken) {
+  // If user is already authenticated (auto-signed in from recovery link),
+  // still allow them to set password - don't require hash token
+  useEffect(() => {
+    // Check if user is already authenticated (from auto-sign-in)
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session && session.user && isValidatingToken) {
+        // User is authenticated - check if they came from a recovery link
+        const hash = window.location.hash;
+        const hasRecoveryInHash = hash && (hash.includes('access_token') || hash.includes('type=recovery'));
+        const hasRecoveryInUrl = window.location.href.includes('reset-password') || 
+                                 window.location.search.includes('type=recovery');
+        
+        if (hasRecoveryInHash || hasRecoveryInUrl) {
+          // User came from recovery link and is authenticated - allow password reset
+          console.log('User authenticated from recovery link, allowing password reset');
+          setIsValidatingToken(false);
+        } else if (isValidatingToken) {
+          // Wait a bit for hash processing
+          setTimeout(() => {
+            if (isValidatingToken) {
+              // Still validating - might be processing hash
+              // Allow password reset anyway if user is authenticated
+              console.log('User authenticated, allowing password reset');
+              setIsValidatingToken(false);
+            }
+          }, 1000);
+        }
+      }
+    };
+    
+    checkAuth();
+  }, [isValidatingToken]);
+
+  if (isValidatingToken && !hasRecoveryToken) {
     return (
       <div className="min-h-screen bg-apple-gradient flex items-center justify-center p-4">
         <div className="bg-card-gradient rounded-2xl p-8 max-w-md w-full border border-blue-500/20 text-center">
