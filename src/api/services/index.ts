@@ -214,6 +214,55 @@ export async function addExistingInvestorToProject(params: AddExistingInvestorTo
   return data;
 }
 
+// Update investment amount and percentage for an existing investor-project combination
+export interface UpdateInvestmentParams {
+  investor_id: number;
+  project_id: string;
+  invested_amount: number;
+  percentage_owned: number;
+}
+
+export async function updateInvestment(params: UpdateInvestmentParams) {
+  // First, check if the investment record exists
+  const { data: existingData, error: checkError } = await supabase
+    .from('Investments-Test')
+    .select('investor_id, project_id')
+    .eq('investor_id', params.investor_id)
+    .eq('project_id', params.project_id)
+    .maybeSingle();
+
+  if (checkError) {
+    console.error('Error checking investment existence:', checkError);
+    throw new Error(`Failed to check investment: ${checkError.message}`);
+  }
+
+  if (!existingData) {
+    throw new Error('Investment record not found. Please ensure the investor is associated with this project.');
+  }
+
+  // Now perform the update
+  const { data, error } = await supabase
+    .from('Investments-Test')
+    .update({
+      invested_amount: params.invested_amount,
+      percentage_owned: params.percentage_owned,
+    })
+    .eq('investor_id', params.investor_id)
+    .eq('project_id', params.project_id)
+    .select();
+
+  if (error) {
+    console.error('Error updating investment:', error);
+    throw new Error(`Failed to update investment: ${error.message}`);
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error('Investment was not updated. No rows were affected.');
+  }
+
+  return data[0];
+}
+
 export async function fetchProjectRevenueByMonth(projectId: string | number, month: string) {
   console.log('fetchProjectRevenueByMonth called with projectId:', projectId, 'month:', month);
   
