@@ -191,7 +191,7 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
         return;
       }
 
-      // Format investors array - the RPC expects investor_id and percentage_owned
+      // Format investors array - the RPC expects investor_id, percentage_owned, and optionally invested_amount
       const investors = investorsWithOwnership.map(inv => {
         // Convert investor_id to number if it's a string
         let investorId: number;
@@ -204,10 +204,17 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
           investorId = inv.investor_id as number;
         }
 
-        return {
+        const investorData: { investor_id: number; percentage_owned: number; invested_amount?: number } = {
           investor_id: investorId,
           percentage_owned: inv.percentage_owned,
         };
+
+        // Include invested_amount if it exists
+        if (inv.invested_amount !== undefined && inv.invested_amount !== null) {
+          investorData.invested_amount = inv.invested_amount;
+        }
+
+        return investorData;
       });
 
       console.log('Calling add_project_with_investors with data:', {
@@ -555,8 +562,31 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <div className="text-sm text-white font-medium">
-                            ${(existingInvestment?.invested_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <div className="relative w-40">
+                            <DollarSign className="absolute left-3 top-2 h-5 w-5 text-gray-400" />
+                            <input
+                              type="text"
+                              value={existingInvestment ? (existingInvestment.invested_amount !== undefined && existingInvestment.invested_amount !== null ? existingInvestment.invested_amount.toString() : '') : ''}
+                              onChange={(e) => {
+                                const existingIndex = projectData.investors.findIndex(inv => inv.investor_id === investor.id);
+                                if (existingIndex < 0) return;
+                                
+                                // Parse the input value (remove commas and parse)
+                                const inputValue = e.target.value.replace(/[^0-9.-]+/g, '');
+                                const newInvestedAmount = inputValue === '' ? 0 : (parseFloat(inputValue) || 0);
+                                
+                                // Update only the invested_amount, leave units and percentage unchanged
+                                const updatedInvestors = [...projectData.investors];
+                                updatedInvestors[existingIndex] = {
+                                  ...updatedInvestors[existingIndex],
+                                  invested_amount: newInvestedAmount,
+                                };
+                                setProjectData({ ...projectData, investors: updatedInvestors });
+                              }}
+                              className="w-full pl-10 pr-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder="0.00"
+                              disabled={!existingInvestment}
+                            />
                           </div>
                         </td>
                         <td className="px-6 py-4">
