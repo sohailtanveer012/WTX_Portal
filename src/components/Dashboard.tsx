@@ -199,7 +199,7 @@ export function Dashboard({ userProfile, setActiveTab }: { userProfile?: UserPro
 
   // Generate investment progress from portfolio data
   const investmentProgress = useMemo(() => {
-    const TARGET_RETURN = 20000000; // $20 million - will be replaced with actual target from response later
+    // const TARGET_RETURN = 20000000; // $20 million - will be replaced with actual target from response later
     return Object.entries(groupedByProject).map(([projectName, projectData]) => {
       if (projectData.length === 0) return null;
       const first = projectData[0];
@@ -212,7 +212,7 @@ export function Dashboard({ userProfile, setActiveTab }: { userProfile?: UserPro
         name: projectName,
         invested,
         totalPayouts,
-        targetReturn: TARGET_RETURN,
+        targetReturn: invested,
       };
     }).filter(Boolean) as Array<{ name: string; invested: number; totalPayouts: number; targetReturn: number }>;
   }, [groupedByProject]);
@@ -522,12 +522,12 @@ const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
                               {returnPercentage >= 0 ? '+' : ''}{returnPercentage.toFixed(1)}%
                             </span>
                           </div>
-                          <div>
+                          {/* <div>
                             <span className="text-[var(--text-muted)] text-xs block mb-1">Net Return</span>
                             <span className={`font-semibold text-base ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
                               {netReturn >= 0 ? '+' : ''}${Math.abs(netReturn).toLocaleString('en-US', { maximumFractionDigits: 0 })}
                             </span>
-                          </div>
+                          </div> */}
                           <div>
                             <span className="text-[var(--text-muted)] text-xs block mb-1">Target Return</span>
                             <span className="font-semibold text-base text-[var(--text-primary)]">
