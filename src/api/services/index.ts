@@ -1859,3 +1859,187 @@ export async function checkInviteSentStatusByInvestorId(investorId: number): Pro
     return { sent: false, sentAt: null };
   }
 }
+
+// Investment Opportunities API Functions
+
+export interface InvestmentOpportunity {
+  id: number;
+  title: string;
+  description: string;
+  project_name?: string | null;
+  target_investment_amount?: number | null;
+  minimum_investment?: number | null;
+  maximum_investment?: number | null;
+  investment_type?: string | null;
+  location?: string | null;
+  expected_return_percentage?: number | null;
+  expected_term_months?: number | null;
+  risk_level?: string | null;
+  status: 'active' | 'inactive' | 'closed' | 'draft';
+  is_featured: boolean;
+  application_deadline?: string | null;
+  project_start_date?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateInvestmentOpportunityParams {
+  title: string;
+  description: string;
+  project_name?: string;
+  target_investment_amount?: number;
+  minimum_investment?: number;
+  maximum_investment?: number;
+  investment_type?: 'units' | 'amount' | 'percentage';
+  location?: string;
+  expected_return_percentage?: number;
+  expected_term_months?: number;
+  risk_level?: 'low' | 'medium' | 'high';
+  status?: 'active' | 'inactive' | 'closed' | 'draft';
+  is_featured?: boolean;
+  application_deadline?: string;
+  project_start_date?: string;
+}
+
+export interface UpdateInvestmentOpportunityParams extends Partial<CreateInvestmentOpportunityParams> {
+  id: number;
+}
+
+// Create a new investment opportunity
+export async function createInvestmentOpportunity(params: CreateInvestmentOpportunityParams): Promise<{ success: boolean; id?: number; message?: string; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('create_investment_opportunity', {
+      p_title: params.title,
+      p_description: params.description,
+      p_project_name: params.project_name || null,
+      p_target_investment_amount: params.target_investment_amount || null,
+      p_minimum_investment: params.minimum_investment || null,
+      p_maximum_investment: params.maximum_investment || null,
+      p_investment_type: params.investment_type || null,
+      p_location: params.location || null,
+      p_expected_return_percentage: params.expected_return_percentage || null,
+      p_expected_term_months: params.expected_term_months || null,
+      p_risk_level: params.risk_level || null,
+      p_status: params.status || 'active',
+      p_is_featured: params.is_featured || false,
+      p_application_deadline: params.application_deadline || null,
+      p_project_start_date: params.project_start_date || null,
+    });
+
+    if (error) {
+      console.error('Error creating investment opportunity:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, id: data?.id, message: data?.message || 'Investment opportunity created successfully' };
+  } catch (err) {
+    console.error('Error creating investment opportunity:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to create investment opportunity';
+    return { success: false, error: errorMessage };
+  }
+}
+
+// Update an investment opportunity
+export async function updateInvestmentOpportunity(params: UpdateInvestmentOpportunityParams): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('update_investment_opportunity', {
+      p_opportunity_id: params.id,
+      p_title: params.title || null,
+      p_description: params.description || null,
+      p_project_name: params.project_name || null,
+      p_target_investment_amount: params.target_investment_amount || null,
+      p_minimum_investment: params.minimum_investment || null,
+      p_maximum_investment: params.maximum_investment || null,
+      p_investment_type: params.investment_type || null,
+      p_location: params.location || null,
+      p_expected_return_percentage: params.expected_return_percentage || null,
+      p_expected_term_months: params.expected_term_months || null,
+      p_risk_level: params.risk_level || null,
+      p_status: params.status || null,
+      p_is_featured: params.is_featured !== undefined ? params.is_featured : null,
+      p_application_deadline: params.application_deadline || null,
+      p_project_start_date: params.project_start_date || null,
+    });
+
+    if (error) {
+      console.error('Error updating investment opportunity:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, message: data?.message || 'Investment opportunity updated successfully' };
+  } catch (err) {
+    console.error('Error updating investment opportunity:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to update investment opportunity';
+    return { success: false, error: errorMessage };
+  }
+}
+
+// Get all investment opportunities (admin only - includes drafts and inactive)
+export async function getAllInvestmentOpportunities(): Promise<InvestmentOpportunity[]> {
+  try {
+    const { data, error } = await supabase.rpc('get_all_investment_opportunities');
+
+    if (error) {
+      console.error('Error fetching investment opportunities (RPC error):', error);
+      console.error('Error details:', error.message, error.code, error.details);
+      return [];
+    }
+
+    console.log('getAllInvestmentOpportunities - Raw RPC response:', data);
+    console.log('getAllInvestmentOpportunities - Data length:', data?.length || 0);
+    
+    return (data || []) as InvestmentOpportunity[];
+  } catch (err) {
+    console.error('Error fetching investment opportunities (Exception):', err);
+    return [];
+  }
+}
+
+// Get active investment opportunities (for investors)
+export async function getActiveInvestmentOpportunities(): Promise<InvestmentOpportunity[]> {
+  console.log('getActiveInvestmentOpportunities - Function called');
+  try {
+    console.log('getActiveInvestmentOpportunities - Calling RPC...');
+    const { data, error } = await supabase.rpc('get_active_investment_opportunities');
+    
+    console.log('getActiveInvestmentOpportunities - RPC call completed');
+    console.log('getActiveInvestmentOpportunities - Error:', error);
+    console.log('getActiveInvestmentOpportunities - Data:', data);
+
+    if (error) {
+      console.error('Error fetching active investment opportunities (RPC error):', error);
+      console.error('Error details:', error.message, error.code, error.details, error.hint);
+      return [];
+    }
+
+    console.log('getActiveInvestmentOpportunities - Raw RPC response:', data);
+    console.log('getActiveInvestmentOpportunities - Data length:', data?.length || 0);
+    
+    return (data || []) as InvestmentOpportunity[];
+  } catch (err) {
+    console.error('Error fetching active investment opportunities (Exception):', err);
+    console.error('Exception details:', err instanceof Error ? err.stack : err);
+    return [];
+  }
+}
+
+// Delete an investment opportunity
+export async function deleteInvestmentOpportunity(opportunityId: number): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('delete_investment_opportunity', {
+      p_opportunity_id: opportunityId,
+    });
+
+    if (error) {
+      console.error('Error deleting investment opportunity:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, message: data?.message || 'Investment opportunity deleted successfully' };
+  } catch (err) {
+    console.error('Error deleting investment opportunity:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to delete investment opportunity';
+    return { success: false, error: errorMessage };
+  }
+}

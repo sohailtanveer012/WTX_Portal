@@ -49,9 +49,17 @@ export function InvestmentContactModal({ isOpen, onClose, investment, userProfil
     }
   }, [isOpen, userProfile]);
 
+  // Support both old format and new InvestmentOpportunity format
+  const investmentName = investment?.title || investment?.project_name || investment?.name || 'Investment Opportunity';
+  const targetRaise = investment?.target_investment_amount || (investment?.targetRaise ? parseFloat(investment.targetRaise.replace(/[^0-9.-]+/g, '')) : null);
+  const minimumInvestment = investment?.minimum_investment || (investment?.minimumInvestment ? parseFloat(investment.minimumInvestment.replace(/[^0-9.-]+/g, '')) : null);
+  const projectedReturn = investment?.expected_return_percentage || investment?.projectedReturn || null;
+  const closingDate = investment?.application_deadline || investment?.closingDate || null;
+  const totalUnits = investment?.totalUnits || 50; // Default to 50 if not provided
+
   // Calculate price per unit
-  const pricePerUnit = investment?.targetRaise && investment?.totalUnits
-    ? parseFloat(investment.targetRaise.replace(/[^0-9.-]+/g, '')) / parseFloat(investment.totalUnits)
+  const pricePerUnit = targetRaise && totalUnits
+    ? targetRaise / totalUnits
     : 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -75,7 +83,7 @@ export function InvestmentContactModal({ isOpen, onClose, investment, userProfil
             investor_email: investorEmail, // Always use email from userProfile
             investor_phone: formData.phone || null,
             company: formData.company || null,
-            project_name: investment.name,
+            project_name: investmentName,
             units: formData.units ? parseInt(formData.units) : null,
             message: formData.message || null,
             preferred_contact: formData.preferredContact,
@@ -124,7 +132,7 @@ export function InvestmentContactModal({ isOpen, onClose, investment, userProfil
             <DollarSign className="h-6 w-6 text-blue-400" />
             <div>
               <h2 className="text-xl font-semibold text-[var(--text-primary)]">Investment Interest</h2>
-              <p className="text-sm text-[var(--text-muted)]">{investment.name}</p>
+              <p className="text-sm text-[var(--text-muted)]">{investmentName}</p>
             </div>
           </div>
           <button
@@ -135,28 +143,42 @@ export function InvestmentContactModal({ isOpen, onClose, investment, userProfil
           </button>
         </div>
 
-        <div className="bg-white/5 rounded-xl p-4 mb-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-sm text-[var(--text-muted)]">Target Raise</p>
-              <p className="text-lg font-semibold text-[var(--text-primary)]">{investment.targetRaise}</p>
-            </div>
-            <div>
-              <p className="text-sm text-[var(--text-muted)]">Minimum Investment</p>
-              <p className="text-lg font-semibold text-[var(--text-primary)]">{investment.minimumInvestment}</p>
-            </div>
-            <div>
-              <p className="text-sm text-[var(--text-muted)]">Projected Return</p>
-              <p className="text-lg font-semibold text-green-400">{investment.projectedReturn}</p>
-            </div>
-            <div>
-              <p className="text-sm text-[var(--text-muted)]">Closing Date</p>
-              <p className="text-lg font-semibold text-[var(--text-primary)]">
-                {new Date(investment.closingDate).toLocaleDateString()}
-              </p>
+        {(targetRaise || minimumInvestment || projectedReturn || closingDate) && (
+          <div className="bg-white/5 rounded-xl p-4 mb-6">
+            <div className="grid grid-cols-2 gap-4">
+              {targetRaise && (
+                <div>
+                  <p className="text-sm text-[var(--text-muted)]">Target Investment</p>
+                  <p className="text-lg font-semibold text-[var(--text-primary)]">
+                    ${targetRaise.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </p>
+                </div>
+              )}
+              {minimumInvestment && (
+                <div>
+                  <p className="text-sm text-[var(--text-muted)]">Minimum Investment</p>
+                  <p className="text-lg font-semibold text-[var(--text-primary)]">
+                    ${minimumInvestment.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </p>
+                </div>
+              )}
+              {projectedReturn !== null && (
+                <div>
+                  <p className="text-sm text-[var(--text-muted)]">Expected Return</p>
+                  <p className="text-lg font-semibold text-green-400">{projectedReturn}%</p>
+                </div>
+              )}
+              {closingDate && (
+                <div>
+                  <p className="text-sm text-[var(--text-muted)]">Application Deadline</p>
+                  <p className="text-lg font-semibold text-[var(--text-primary)]">
+                    {new Date(closingDate).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -219,15 +241,21 @@ export function InvestmentContactModal({ isOpen, onClose, investment, userProfil
                   className="w-full px-4 py-3 bg-[var(--input-background)] border border-[var(--input-border)] rounded-xl text-[var(--input-text)] focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select units to invest</option>
-                  {[...Array(10)].map((_, i) => (
-                    <option key={i + 1} value={i + 1}>
-                      {i + 1} {i === 0 ? 'Unit' : 'Units'} - ${((i + 1) * (parseFloat(investment.targetRaise.replace(/[^0-9.-]+/g, '')) / 50)).toLocaleString()}
-                    </option>
-                  ))}
+                  {pricePerUnit > 0 ? (
+                    [...Array(10)].map((_, i) => (
+                      <option key={i + 1} value={i + 1}>
+                        {i + 1} {i === 0 ? 'Unit' : 'Units'} - ${((i + 1) * pricePerUnit).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">Enter investment amount manually</option>
+                  )}
                 </select>
-                <div className="mt-2 text-sm text-[var(--text-muted)]">
-                  Price per unit: ${(parseFloat(investment.targetRaise.replace(/[^0-9.-]+/g, '')) / 50).toLocaleString()}
-                </div>
+                {pricePerUnit > 0 && (
+                  <div className="mt-2 text-sm text-[var(--text-muted)]">
+                    Price per unit: ${pricePerUnit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </div>
+                )}
               </div>
             </div>
 

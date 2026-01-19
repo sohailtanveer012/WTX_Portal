@@ -22,6 +22,7 @@ import { AdminSettings } from './components/admin/AdminSettings';
 import { AdminNotifications } from './components/admin/AdminNotifications';
 import { AdminNewReferrals } from './components/admin/AdminNewReferrals';
 import { AdminBulletinBoard } from './components/admin/AdminBulletinBoard';
+import { AdminInvestmentOpportunities } from './components/admin/AdminInvestmentOpportunities';
 import { ReferralForm } from './components/ReferralForm';
 import { supabase } from './supabaseClient';
 import { fetchUnviewedInvestmentRequestsCount, fetchUnviewedDistributionRequestsCount, fetchUnviewedProfileEditRequestsCount, trackReferralClick } from './api/services';
@@ -245,6 +246,9 @@ function MainApp() {
           )}
           {activeTab === 'bulletin board' && (
             <AdminBulletinBoard userProfile={userProfile} />
+          )}
+          {activeTab === 'investment opportunities' && (
+            <AdminInvestmentOpportunities />
           )}
           {activeTab === 'forum' && (
             <Forum userProfile={userProfile} />
