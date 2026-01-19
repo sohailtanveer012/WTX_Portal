@@ -449,7 +449,7 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
           <div class="footer">
             <p><strong>Generated on:</strong> ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
             <p><strong>Disclaimer:</strong> This is an automated statement generated from our records. The distribution amounts are calculated based on production data, ownership percentages, and the methodology outlined above. If you have any questions or notice any discrepancies, please contact our support team immediately.</p>
-            <p style="margin-top: 15px;"><strong>Contact:</strong> For questions regarding this statement, please contact your account representative or support@wtxoil.com</p>
+            <p style="margin-top: 15px;"><strong>Contact:</strong> For questions regarding this statement, please contact your account representative or support@wtxcrude.com</p>
           </div>
         </body>
       </html>
