@@ -1112,6 +1112,7 @@ export interface ProfileEditRequest {
   request_type: 'personal_info' | 'banking_info';
   status: 'pending' | 'approved' | 'rejected' | 'completed';
   current_data: Record<string, unknown> | null;
+  new_data: Record<string, unknown> | null; // New/updated information
   viewed: boolean;
   viewed_at?: string;
   admin_notes?: string;
@@ -1123,7 +1124,8 @@ export async function createProfileEditRequest(
   investorEmail: string,
   investorName: string,
   requestType: 'personal_info' | 'banking_info',
-  currentData: Record<string, unknown>
+  currentData: Record<string, unknown>,
+  newData: Record<string, unknown>
 ): Promise<{ success: boolean; data?: ProfileEditRequest; error?: string }> {
   try {
     // Insert without .select() first to avoid triggering SELECT policies
@@ -1135,6 +1137,7 @@ export async function createProfileEditRequest(
         investor_name: investorName,
         request_type: requestType,
         current_data: currentData,
+        new_data: newData,
         status: 'pending',
         viewed: false
       }]);

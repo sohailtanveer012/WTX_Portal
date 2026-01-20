@@ -9,6 +9,7 @@ import {
   fetchAllProfileEditRequests,
   markProfileEditRequestsAsViewed,
   updateProfileEditRequestStatus,
+  updateInvestorPersonalInfo,
   type DistributionRequest,
   type DistributionRecipient,
   type ProfileEditRequest
@@ -399,6 +400,41 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
   // Handle profile edit request status update
   const handleProfileEditRequestStatusUpdate = async (requestId: string | number, newStatus: 'approved' | 'rejected' | 'completed') => {
     try {
+      // If approving, first update the investor's profile in the database
+      if (newStatus === 'approved' && selectedProfileEditRequest) {
+        const newData = selectedProfileEditRequest.new_data;
+        if (newData) {
+          // Map the new_data to the format expected by updateInvestorPersonalInfo
+          const updateData: Partial<{ full_name: string; phone_number: string; dob: string; address: string; ssn: string; bank: string; routing: string; account: string }> = {};
+          
+          if (selectedProfileEditRequest.request_type === 'personal_info') {
+            // Map personal info fields (only fields supported by the RPC)
+            if (newData.name) updateData.full_name = String(newData.name);
+            if (newData.phone) updateData.phone_number = String(newData.phone);
+            if (newData.address) updateData.address = String(newData.address);
+            if (newData.ssn) updateData.ssn = String(newData.ssn);
+            // Note: company and dob are not supported by the RPC function currently
+          } else if (selectedProfileEditRequest.request_type === 'banking_info') {
+            // Map banking info fields
+            if (newData.bank) updateData.bank = String(newData.bank);
+            if (newData.routing) updateData.routing = String(newData.routing);
+            if (newData.account) updateData.account = String(newData.account);
+          }
+
+          // Update the investor's profile
+          const updateResult = await updateInvestorPersonalInfo(
+            selectedProfileEditRequest.investor_email,
+            updateData
+          );
+
+          if (!updateResult.success) {
+            alert(`Failed to update investor profile: ${updateResult.error || 'Unknown error'}`);
+            return;
+          }
+        }
+      }
+
+      // Update the request status
       const result = await updateProfileEditRequestStatus(
         requestId,
         newStatus,
@@ -409,7 +445,7 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
         await fetchProfileEditRequests();
         setSelectedProfileEditRequest(null);
         setEditRequestAdminNotes('');
-        alert(`Edit request ${newStatus} successfully.`);
+        alert(`Edit request ${newStatus} successfully${newStatus === 'approved' ? ' and investor profile updated.' : '.'}`);
       } else {
         alert(`Failed to update request status: ${result.error || 'Unknown error'}`);
       }
@@ -1485,28 +1521,55 @@ export function AdminNotifications({ onMarkAsViewed }: AdminNotificationsProps) 
                       </div>
                     </div>
 
-                    <div>
-                      <label className="text-sm text-gray-400 mb-3 block">Current Data</label>
-                      <div className="p-4 bg-white/5 rounded-xl border border-white/10">
-                        {selectedProfileEditRequest.current_data && Object.keys(selectedProfileEditRequest.current_data).length > 0 ? (
-                          <div className="space-y-3">
-                            {Object.entries(selectedProfileEditRequest.current_data).map(([key, value]) => (
-                              value && (
-                                <div key={key} className="flex justify-between items-start">
-                                  <span className="text-sm text-gray-400 capitalize">{key.replace(/_/g, ' ')}:</span>
-                                  <span className="text-sm text-white font-medium ml-4 text-right">
-                                    {key === 'ssn' || key === 'account' || key === 'routing' 
-                                      ? '****' + String(value).slice(-4)
-                                      : String(value)
-                                    }
-                                  </span>
-                                </div>
-                              )
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-gray-400">No current data available</p>
-                        )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-sm text-gray-400 mb-3 block">Current Data</label>
+                        <div className="p-4 bg-white/5 rounded-xl border border-white/10">
+                          {selectedProfileEditRequest.current_data && Object.keys(selectedProfileEditRequest.current_data).length > 0 ? (
+                            <div className="space-y-3">
+                              {Object.entries(selectedProfileEditRequest.current_data).map(([key, value]) => (
+                                value && (
+                                  <div key={key} className="flex justify-between items-start">
+                                    <span className="text-sm text-gray-400 capitalize">{key.replace(/_/g, ' ')}:</span>
+                                    <span className="text-sm text-white font-medium ml-4 text-right">
+                                      {key === 'ssn' || key === 'account' || key === 'routing' 
+                                        ? '****' + String(value).slice(-4)
+                                        : String(value)
+                                      }
+                                    </span>
+                                  </div>
+                                )
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-400">No current data available</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-sm text-gray-400 mb-3 block">New/Updated Data</label>
+                        <div className="p-4 bg-green-500/10 rounded-xl border border-green-500/20">
+                          {selectedProfileEditRequest.new_data && Object.keys(selectedProfileEditRequest.new_data).length > 0 ? (
+                            <div className="space-y-3">
+                              {Object.entries(selectedProfileEditRequest.new_data).map(([key, value]) => (
+                                value && (
+                                  <div key={key} className="flex justify-between items-start">
+                                    <span className="text-sm text-gray-400 capitalize">{key.replace(/_/g, ' ')}:</span>
+                                    <span className="text-sm text-green-400 font-medium ml-4 text-right">
+                                      {key === 'ssn' || key === 'account' || key === 'routing' 
+                                        ? '****' + String(value).slice(-4)
+                                        : String(value)
+                                      }
+                                    </span>
+                                  </div>
+                                )
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-400">No new data provided</p>
+                          )}
+                        </div>
                       </div>
                     </div>
 
