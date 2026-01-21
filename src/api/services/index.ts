@@ -1669,14 +1669,30 @@ export async function getInvestorPersonalInfo(investorId: number): Promise<Inves
   }
 }
 
-// Get investor email from investor_id using get_investor_portfolio
+// Get investor email from investor_id using get_investor_portfolio or Investors table
 export async function getInvestorEmailById(investorId: number): Promise<string | null> {
   try {
-    // Use get_investor_portfolio to get investor email
+    // First, try to get email from portfolio (works for investors with investments)
     const portfolio = await fetchInvestorPortfolio(investorId);
     
     if (portfolio && portfolio.length > 0 && portfolio[0].investor_email) {
       return portfolio[0].investor_email as string;
+    }
+
+    // If portfolio is empty (new investor without investments), get email directly from Investors table
+    const { data, error } = await supabase
+      .from('Investors')
+      .select('Investor_email')
+      .eq('id', investorId)
+      .single();
+
+    if (error) {
+      console.error('Error fetching investor email from Investors table:', error);
+      return null;
+    }
+
+    if (data && data.Investor_email) {
+      return data.Investor_email as string;
     }
 
     return null;
