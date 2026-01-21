@@ -32,6 +32,15 @@ export function InvestorPortfolio({ investorId, onBack }: InvestorPortfolioProps
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Array<{ id: string; project_name: string }>>([]);
 
+  // Helper function to convert month number to month name
+  const getMonthName = (monthNum: number | string | null | undefined): string => {
+    if (!monthNum) return '-';
+    const num = typeof monthNum === 'string' ? parseInt(monthNum, 10) : monthNum;
+    if (isNaN(num) || num < 1 || num > 12) return String(monthNum);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[num - 1] || String(monthNum);
+  };
+
   const fetchPortfolio = async () => {
     setLoading(true);
     try {
@@ -256,7 +265,7 @@ export function InvestorPortfolio({ investorId, onBack }: InvestorPortfolioProps
                     <tbody>
                       {projectData.map((p) => (
                         <tr key={(p.payout_id || `${projectName}-${p.month}-${p.year}-${Math.random()}`) as React.Key} className="border-t border-white/10">
-                          <td className="p-3 text-[var(--text-primary)]">{p.month || '-'}</td>
+                          <td className="p-3 text-[var(--text-primary)]">{getMonthName(p.month)}</td>
                           <td className="p-3 text-[var(--text-primary)]">{p.year || '-'}</td>
                           <td className="p-3 text-right text-[var(--text-primary)]">
                             {p.payout_amount ? `$${Number(p.payout_amount).toLocaleString()}` : '-'}
