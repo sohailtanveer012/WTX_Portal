@@ -2062,3 +2062,261 @@ export async function deleteInvestmentOpportunity(opportunityId: number): Promis
     return { success: false, error: errorMessage };
   }
 }
+
+// ==================== User Documents API Functions ====================
+
+export interface UserDocument {
+  id: number;
+  investor_id?: number | null;
+  user_id?: string | null;
+  document_name: string;
+  file_path: string;
+  file_url: string | null;
+  file_name: string;
+  file_size?: number | null;
+  mime_type?: string | null;
+  category: 'Tax Document' | 'Subscription Agreement' | 'KYC' | 'Contract' | 'Statement' | 'Other';
+  description?: string | null;
+  notes?: string | null; // Admin notes
+  uploaded_by?: string | null;
+  uploaded_at: string;
+  created_at: string;
+  updated_at: string;
+  investor_name?: string | null;
+  investor_email?: string | null;
+}
+
+// Get documents by investor ID
+export async function getUserDocumentsByInvestorId(investorId: number): Promise<UserDocument[]> {
+  try {
+    const { data, error } = await supabase.rpc('get_user_documents_by_investor_id', {
+      p_investor_id: investorId
+    });
+    if (error) {
+      console.error('Error fetching user documents by investor ID:', error);
+      return [];
+    }
+    return (data || []) as UserDocument[];
+  } catch (err) {
+    console.error('Error fetching user documents by investor ID:', err);
+    return [];
+  }
+}
+
+// Get documents by email
+export async function getUserDocumentsByEmail(email: string): Promise<UserDocument[]> {
+  try {
+    const { data, error } = await supabase.rpc('get_user_documents_by_email', {
+      p_email: email
+    });
+    if (error) {
+      console.error('Error fetching user documents by email:', error);
+      return [];
+    }
+    return (data || []) as UserDocument[];
+  } catch (err) {
+    console.error('Error fetching user documents by email:', err);
+    return [];
+  }
+}
+
+// Get signed URL for document download (for private buckets)
+export async function getDocumentSignedUrl(filePath: string, expiresIn: number = 3600): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.storage
+      .from('user-documents')
+      .createSignedUrl(filePath, expiresIn);
+
+    if (error) {
+      console.error('Error creating signed URL:', error);
+      return null;
+    }
+
+    return data?.signedUrl || null;
+  } catch (err) {
+    console.error('Error creating signed URL:', err);
+    return null;
+  }
+}
+
+// Get all documents (Admin only)
+export async function getAllUserDocuments(): Promise<UserDocument[]> {
+  try {
+    const { data, error } = await supabase.rpc('get_all_user_documents');
+    if (error) {
+      console.error('Error fetching all user documents:', error);
+      return [];
+    }
+    return (data || []) as UserDocument[];
+  } catch (err) {
+    console.error('Error fetching all user documents:', err);
+    return [];
+  }
+}
+
+// Create user document (Admin only)
+export async function createUserDocument(
+  investorId: number | null,
+  userId: string | null,
+  file: File,
+  category: UserDocument['category'],
+  documentName?: string,
+  description?: string,
+  adminNotes?: string
+): Promise<{ success: boolean; error?: string; document?: UserDocument }> {
+  try {
+    // Validate that at least one identifier is provided
+    if (!investorId && !userId) {
+      return { success: false, error: 'Either investor ID or user ID must be provided' };
+    }
+
+    // Get current user ID for uploaded_by
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    // Generate unique file path
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const filePath = investorId 
+      ? `investor-${investorId}/${fileName}`
+      : `user-${userId}/${fileName}`;
+
+    // Upload file to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('user-documents')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+
+    if (uploadError) {
+      console.error('Error uploading file to storage:', uploadError);
+      return { success: false, error: uploadError.message || 'Failed to upload file' };
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('user-documents')
+      .getPublicUrl(filePath);
+
+    const fileUrl = urlData.publicUrl;
+
+    // Create document record via RPC
+    const { data: rpcData, error: rpcError } = await supabase.rpc('create_user_document', {
+      p_document_name: documentName || file.name,
+      p_file_path: filePath,
+      p_file_name: file.name,
+      p_investor_id: investorId,
+      p_user_id: userId,
+      p_file_url: fileUrl,
+      p_file_size: file.size,
+      p_mime_type: file.type || null,
+      p_category: category,
+      p_description: description || null,
+      p_notes: adminNotes || null
+    });
+
+    if (rpcError) {
+      console.error('Error creating document record:', rpcError);
+      // Try to delete uploaded file if record creation fails
+      await supabase.storage.from('user-documents').remove([filePath]);
+      return { success: false, error: rpcError.message || 'Failed to create document record' };
+    }
+
+    if (!rpcData || !rpcData.success) {
+      // Try to delete uploaded file if record creation fails
+      await supabase.storage.from('user-documents').remove([filePath]);
+      return { success: false, error: rpcData?.error || 'Failed to create document record' };
+    }
+
+    // Fetch the created document to return it
+    const documents = investorId 
+      ? await getUserDocumentsByInvestorId(investorId)
+      : await getUserDocumentsByEmail(user?.email || '');
+    
+    const createdDocument = documents.find(doc => doc.id === rpcData.id);
+
+    return { 
+      success: true, 
+      document: createdDocument as UserDocument 
+    };
+  } catch (err) {
+    console.error('Error creating user document:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to create document';
+    return { success: false, error: errorMessage };
+  }
+}
+
+// Update user document (Admin only)
+export async function updateUserDocument(
+  documentId: number,
+  updates: {
+    document_name?: string;
+    category?: UserDocument['category'];
+    description?: string;
+    notes?: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('update_user_document', {
+      p_document_id: documentId,
+      p_document_name: updates.document_name || null,
+      p_category: updates.category || null,
+      p_description: updates.description || null,
+      p_notes: updates.notes || null
+    });
+
+    if (error) {
+      console.error('Error updating user document:', error);
+      return { success: false, error: error.message };
+    }
+
+    if (!data || !data.success) {
+      return { success: false, error: data?.error || 'Failed to update document' };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Error updating user document:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to update document';
+    return { success: false, error: errorMessage };
+  }
+}
+
+// Delete user document (Admin only)
+export async function deleteUserDocument(documentId: number): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('delete_user_document', {
+      p_document_id: documentId
+    });
+
+    if (error) {
+      console.error('Error deleting user document:', error);
+      return { success: false, error: error.message };
+    }
+
+    if (!data || !data.success) {
+      return { success: false, error: data?.error || 'Failed to delete document' };
+    }
+
+    // Delete file from storage if file_path is returned
+    if (data.file_path) {
+      const { error: storageError } = await supabase.storage
+        .from('user-documents')
+        .remove([data.file_path]);
+
+      if (storageError) {
+        console.error('Error deleting file from storage:', storageError);
+        // Don't fail the request if storage deletion fails
+      }
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Error deleting user document:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to delete document';
+    return { success: false, error: errorMessage };
+  }
+}

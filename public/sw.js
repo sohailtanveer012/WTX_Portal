@@ -1,5 +1,5 @@
 // Service Worker for WTX Investor Portal PWA
-const CACHE_NAME = 'wtx-investor-portal-v1';
+const CACHE_NAME = 'wtx-investor-portal-v2'; // Updated version to force cache refresh
 const urlsToCache = [
   '/',
   '/index.html',
@@ -36,13 +36,14 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
+    }).then(() => {
+      // Claim all clients immediately to use new service worker
+      return self.clients.claim();
     })
   );
-  // Claim clients immediately
-  return self.clients.claim();
 });
 
-// Fetch event - serve from cache, fallback to network
+// Fetch event - network-first for JS/CSS, cache-first for static assets
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (event.request.method !== 'GET') {
@@ -54,34 +55,71 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const url = new URL(event.request.url);
+  const isJavaScript = url.pathname.endsWith('.js') || url.pathname.includes('/src/');
+  const isCSS = url.pathname.endsWith('.css');
+  const isStaticAsset = url.pathname.match(/\.(png|jpg|jpeg|svg|gif|ico|woff|woff2|ttf|eot)$/i);
+
+  // Network-first strategy for JavaScript and CSS (always get latest version)
+  if (isJavaScript || isCSS) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          // If network succeeds, update cache and return response
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return response;
+        })
+        .catch(() => {
+          // Network failed, try cache as fallback
+          return caches.match(event.request);
+        })
+    );
+    return;
+  }
+
+  // Cache-first strategy for static assets
+  if (isStaticAsset) {
+    event.respondWith(
+      caches.match(event.request)
+        .then((response) => {
+          if (response) {
+            return response;
+          }
+          return fetch(event.request).then((response) => {
+            if (response && response.status === 200) {
+              const responseToCache = response.clone();
+              caches.open(CACHE_NAME).then((cache) => {
+                cache.put(event.request, responseToCache);
+              });
+            }
+            return response;
+          });
+        })
+    );
+    return;
+  }
+
+  // For HTML and other files: cache-first with network fallback
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
-        // Cache hit - return response
         if (response) {
           return response;
         }
-
-        // Clone the request because it's a stream
-        const fetchRequest = event.request.clone();
-
-        return fetch(fetchRequest).then((response) => {
-          // Check if valid response
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
-          }
-
-          // Clone the response because it's a stream
-          const responseToCache = response.clone();
-
-          caches.open(CACHE_NAME)
-            .then((cache) => {
+        return fetch(event.request).then((response) => {
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
               cache.put(event.request, responseToCache);
             });
-
+          }
           return response;
         }).catch(() => {
-          // Network failed, return offline page if available
           if (event.request.destination === 'document') {
             return caches.match('/index.html');
           }

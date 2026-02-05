@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Loader2, Edit2, DollarSign, Percent, X, Check, AlertCircle } from 'lucide-react';
-import { fetchInvestorPortfolio, updateInvestment, fetchProjectsWithInvestorCount } from '../../api/services';
+import { ArrowLeft, Loader2, Edit2, DollarSign, Percent, X, Check, AlertCircle, FileText, Download, File } from 'lucide-react';
+import { fetchInvestorPortfolio, updateInvestment, fetchProjectsWithInvestorCount, getUserDocumentsByInvestorId, getDocumentSignedUrl, type UserDocument } from '../../api/services';
 import { supabase } from '../../supabaseClient';
 
 type PortfolioRow = {
@@ -31,6 +31,9 @@ export function InvestorPortfolio({ investorId, onBack }: InvestorPortfolioProps
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Array<{ id: string; project_name: string }>>([]);
+  const [showReports, setShowReports] = useState(false);
+  const [documents, setDocuments] = useState<UserDocument[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
 
   // Helper function to convert month number to month name
   const getMonthName = (monthNum: number | string | null | undefined): string => {
@@ -183,6 +186,19 @@ export function InvestorPortfolio({ investorId, onBack }: InvestorPortfolioProps
     }
   };
 
+  const fetchDocuments = async () => {
+    setLoadingDocuments(true);
+    try {
+      const docs = await getUserDocumentsByInvestorId(investorId);
+      setDocuments(docs);
+    } catch (error) {
+      console.error('Error fetching documents:', error);
+      setDocuments([]);
+    } finally {
+      setLoadingDocuments(false);
+    }
+  };
+
   // Auto-fetch when the view opens or investorId changes
   useEffect(() => {
     fetchPortfolio();
@@ -190,20 +206,38 @@ export function InvestorPortfolio({ investorId, onBack }: InvestorPortfolioProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [investorId]);
 
+  // Fetch documents when showing reports
+  useEffect(() => {
+    if (showReports) {
+      fetchDocuments();
+    }
+  }, [showReports, investorId]);
+
   return (
     <main className="flex-1 overflow-y-auto bg-apple-gradient p-4 sm:p-6">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <button
-              onClick={onBack}
+              onClick={showReports ? () => setShowReports(false) : onBack}
               className="p-2 rounded-xl bg-white/5 text-gray-400 hover:text-gray-300 transition-colors border border-white/10"
               aria-label="Back"
             >
               <ArrowLeft className="h-6 w-6" />
             </button>
-            <h1 className="text-2xl font-bold text-[var(--text-primary)]">Investor Portfolio</h1>
+            <h1 className="text-2xl font-bold text-[var(--text-primary)]">
+              {showReports ? 'Investor Reports' : 'Investor Portfolio'}
+            </h1>
           </div>
+          {!showReports && (
+            <button
+              onClick={() => setShowReports(true)}
+              className="px-4 py-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg hover:bg-blue-500/20 transition-colors flex items-center space-x-2"
+            >
+              <FileText className="h-4 w-4" />
+              <span>View Reports</span>
+            </button>
+          )}
         </div>
 
         {investorInfo && (
@@ -213,7 +247,85 @@ export function InvestorPortfolio({ investorId, onBack }: InvestorPortfolioProps
           </div>
         )}
 
-        <div className="grid gap-6">
+        {showReports ? (
+          <div className="bg-card-gradient rounded-2xl p-6 hover-neon-glow border border-blue-500/20">
+            <h2 className="text-xl font-semibold text-white mb-6 flex items-center">
+              <File className="h-5 w-5 mr-2 text-blue-400" />
+              Documents
+              <span className="ml-2 text-sm text-gray-400">
+                ({documents.length} {documents.length === 1 ? 'document' : 'documents'})
+              </span>
+            </h2>
+            {loadingDocuments ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 text-blue-400 animate-spin" />
+                <span className="ml-3 text-gray-400">Loading documents...</span>
+              </div>
+            ) : documents.length > 0 ? (
+              <div className="space-y-4">
+                {documents.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="p-4 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-3 mb-2">
+                          <FileText className="h-5 w-5 text-blue-400" />
+                          <h3 className="font-semibold text-white">{doc.document_name}</h3>
+                          <span className={`px-2 py-1 rounded text-xs border ${
+                            doc.category === '1099 form' 
+                              ? 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                              : doc.category === 'revenue report'
+                              ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                              : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
+                          }`}>
+                            {doc.category}
+                          </span>
+                        </div>
+                        {doc.description && (
+                          <p className="text-sm text-gray-400 mb-2">{doc.description}</p>
+                        )}
+                        <div className="flex items-center space-x-4 text-xs text-gray-500">
+                          <span>{doc.file_size ? `${(doc.file_size / 1024).toFixed(2)} KB` : 'Unknown size'}</span>
+                          <span>•</span>
+                          <span>Uploaded: {new Date(doc.uploaded_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (!doc.file_path) return;
+                          try {
+                            const signedUrl = await getDocumentSignedUrl(doc.file_path, 3600);
+                            if (signedUrl) {
+                              window.open(signedUrl, '_blank', 'noopener,noreferrer');
+                            } else {
+                              alert('Failed to generate download link. Please try again.');
+                            }
+                          } catch (error) {
+                            console.error('Error downloading document:', error);
+                            alert('Failed to download document. Please try again.');
+                          }
+                        }}
+                        className="ml-4 px-4 py-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg hover:bg-blue-500/20 transition-colors flex items-center space-x-2"
+                      >
+                        <Download className="h-4 w-4" />
+                        <span>Download</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-400">No documents available yet</p>
+                <p className="text-sm text-gray-500 mt-2">Documents uploaded by administrators will appear here</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="grid gap-6">
           {Object.keys(groupedByProject).map((projectName) => {
             const projectData = groupedByProject[projectName] || [];
             if (projectData.length === 0) return null;
@@ -287,7 +399,8 @@ export function InvestorPortfolio({ investorId, onBack }: InvestorPortfolioProps
               No portfolio data.
             </div>
           )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Edit Investment Info Modal */}

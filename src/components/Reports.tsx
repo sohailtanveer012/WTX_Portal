@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { FileText, Download, Calendar, TrendingUp, BarChart3, Loader2 } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { FileText, Download, Calendar, TrendingUp, BarChart3, Loader2, File } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line } from 'recharts';
-import { fetchInvestorPortfolioByEmail } from '../api/services';
+import { fetchInvestorPortfolioByEmail, getUserDocumentsByEmail, getDocumentSignedUrl, type UserDocument } from '../api/services';
 
 type PortfolioRow = {
   investor_id?: number | string;
@@ -36,6 +36,8 @@ interface UserProfile {
 export function Reports({ userProfile }: { userProfile?: UserProfile }) {
   const [portfolio, setPortfolio] = useState<PortfolioRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [documents, setDocuments] = useState<UserDocument[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
 
   // Fetch portfolio data
   useEffect(() => {
@@ -60,10 +62,61 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
     fetchData();
   }, [userProfile?.email]);
 
+  // Fetch user documents
+  useEffect(() => {
+    const fetchDocuments = async () => {
+      console.log('Reports: useEffect triggered, userProfile:', userProfile);
+      console.log('Reports: userProfile?.email:', userProfile?.email);
+      
+      if (!userProfile?.email) {
+        console.log('Reports: No email found, skipping document fetch');
+        setLoadingDocuments(false);
+        setDocuments([]);
+        return;
+      }
+
+      console.log('Reports: Fetching documents for email:', userProfile.email);
+      setLoadingDocuments(true);
+      try {
+        const docs = await getUserDocumentsByEmail(userProfile.email);
+        console.log('Reports: Fetched documents:', docs);
+        setDocuments(docs || []);
+      } catch (error) {
+        console.error('Error fetching documents:', error);
+        setDocuments([]);
+      } finally {
+        setLoadingDocuments(false);
+      }
+    };
+
+    fetchDocuments();
+  }, [userProfile?.email, userProfile]);
+
   // Helper function to get month name
   const getMonthName = (monthNum: number): string => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return months[monthNum - 1] || 'Unknown';
+  };
+
+  // Helper function to format file size
+  const formatFileSize = (bytes: number | null | undefined): string => {
+    if (!bytes) return 'Unknown size';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  // Helper function to get category color
+  const getCategoryColor = (category: string) => {
+    const colors: Record<string, string> = {
+      'Tax Document': 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+      'Subscription Agreement': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+      'KYC': 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+      'Contract': 'bg-green-500/10 text-green-400 border-green-500/20',
+      'Statement': 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+      'Other': 'bg-gray-500/10 text-gray-400 border-gray-500/20'
+    };
+    return colors[category] || colors['Other'];
   };
 
   // Group portfolio by project
@@ -460,15 +513,16 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
     }, 250);
   };
 
-  if (loading) {
-    return (
-      <main className="flex-1 overflow-y-auto bg-apple-gradient p-6">
-        <div className="max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
-        </div>
-      </main>
-    );
-  }
+  // Don't return early - always show the full component including documents section
+  // if (loading) {
+  //   return (
+  //     <main className="flex-1 overflow-y-auto bg-apple-gradient p-6">
+  //       <div className="max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+  //         <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
+  //       </div>
+  //     </main>
+  //   );
+  // }
 
   return (
     <main className="flex-1 overflow-y-auto bg-apple-gradient p-6">
@@ -496,7 +550,12 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
               Monthly Distribution Statements
             </h2>
           </div>
-          {monthlyDistributions.length > 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 text-blue-400 animate-spin" />
+              <span className="ml-3 text-gray-400">Loading portfolio data...</span>
+            </div>
+          ) : monthlyDistributions.length > 0 ? (
           <div className="space-y-4">
               {monthlyDistributions.map((dist, index) => (
               <div
@@ -611,6 +670,87 @@ export function Reports({ userProfile }: { userProfile?: UserProfile }) {
             </ResponsiveContainer>
           ) : (
             <p className="text-gray-400 text-center py-8">No earnings data available yet.</p>
+          )}
+        </div>
+
+        {/* User Documents Section - Always visible */}
+        <div className="bg-card-gradient rounded-2xl p-6 mb-8 hover-neon-glow border-2 border-blue-500/50" id="documents-section" style={{ minHeight: '200px', backgroundColor: 'rgba(30, 58, 138, 0.1)' }}>
+          <h2 className="text-xl font-semibold text-white mb-6 flex items-center">
+            <File className="h-5 w-5 mr-2 text-blue-400" />
+            Documents
+            <span className="ml-2 text-sm text-gray-400">
+              ({documents.length} {documents.length === 1 ? 'document' : 'documents'})
+            </span>
+            {!userProfile?.email && (
+              <span className="ml-2 text-xs text-yellow-400">(Email not available)</span>
+            )}
+          </h2>
+          {loadingDocuments ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 text-blue-400 animate-spin" />
+              <span className="ml-3 text-gray-400">Loading documents...</span>
+            </div>
+          ) : documents.length > 0 ? (
+            <div className="space-y-4">
+              {documents.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="p-4 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <FileText className="h-5 w-5 text-blue-400" />
+                        <h3 className="font-semibold text-white">{doc.document_name}</h3>
+                        <span className={`px-2 py-1 rounded text-xs border ${getCategoryColor(doc.category)}`}>
+                          {doc.category}
+                        </span>
+                      </div>
+                      {doc.description && (
+                        <p className="text-sm text-gray-400 mb-2">{doc.description}</p>
+                      )}
+                      <div className="flex items-center space-x-4 text-xs text-gray-500">
+                        <span>{formatFileSize(doc.file_size)}</span>
+                        <span>•</span>
+                        <span>Uploaded: {new Date(doc.uploaded_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        // Try public URL first (if bucket is public), fallback to signed URL
+                        if (doc.file_url) {
+                          window.open(doc.file_url, '_blank', 'noopener,noreferrer');
+                          return;
+                        }
+                        
+                        if (!doc.file_path) return;
+                        try {
+                          const signedUrl = await getDocumentSignedUrl(doc.file_path, 3600);
+                          if (signedUrl) {
+                            window.open(signedUrl, '_blank', 'noopener,noreferrer');
+                          } else {
+                            alert('Failed to generate download link. Please try again.');
+                          }
+                        } catch (error) {
+                          console.error('Error downloading document:', error);
+                          alert('Failed to download document. Please try again.');
+                        }
+                      }}
+                      className="ml-4 px-4 py-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg hover:bg-blue-500/20 transition-colors flex items-center space-x-2"
+                    >
+                      <Download className="h-4 w-4" />
+                      <span>Download</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-400">No documents available yet</p>
+              <p className="text-sm text-gray-500 mt-2">Documents uploaded by administrators will appear here</p>
+            </div>
           )}
         </div>
 
