@@ -263,6 +263,53 @@ export async function updateInvestment(params: UpdateInvestmentParams) {
   return data[0];
 }
 
+export interface RemoveInvestorFromProjectParams {
+  investor_id: number;
+  project_id: string;
+}
+
+export async function removeInvestorFromProject(params: RemoveInvestorFromProjectParams): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    // Ensure project_id is a valid UUID string and investor_id is a number
+    const projectIdUuid = params.project_id;
+    const investorId = Number(params.investor_id);
+    
+    console.log('removeInvestorFromProject - Input params:', params);
+    console.log('removeInvestorFromProject - Converted values:', {
+      investor_id: investorId,
+      investor_id_type: typeof investorId,
+      project_id: projectIdUuid,
+      project_id_type: typeof projectIdUuid,
+    });
+    
+    if (isNaN(investorId)) {
+      return { success: false, error: `Invalid investor_id: ${params.investor_id}` };
+    }
+    
+    const { data, error } = await supabase.rpc('remove_investor_from_project', {
+      p_investor_id: investorId,
+      p_project_id: projectIdUuid, // Supabase will handle UUID conversion
+    });
+    
+    console.log('removeInvestorFromProject - RPC response:', { data, error });
+
+    if (error) {
+      console.error('Error removing investor from project:', error);
+      return { success: false, error: error.message || 'Failed to remove investor from project' };
+    }
+
+    if (!data || !data.success) {
+      return { success: false, error: data?.error || 'Failed to remove investor from project' };
+    }
+
+    return { success: true, message: data.message || 'Investor successfully removed from project' };
+  } catch (err) {
+    console.error('Error removing investor from project:', err);
+    const errorMessage = err instanceof Error ? err.message : 'Failed to remove investor from project';
+    return { success: false, error: errorMessage };
+  }
+}
+
 export async function fetchProjectRevenueByMonth(projectId: string | number, month: string) {
   console.log('fetchProjectRevenueByMonth called with projectId:', projectId, 'month:', month);
   

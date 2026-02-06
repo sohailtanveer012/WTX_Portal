@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Users, DollarSign, TrendingUp, TrendingDown, Droplets, Calendar, MapPin, Calculator, FileText, Download, UserPlus, Edit2, Check, X, Loader2 } from 'lucide-react';
+import { ArrowLeft, Users, DollarSign, TrendingUp, TrendingDown, Droplets, Calendar, MapPin, Calculator, FileText, Download, UserPlus, Edit2, Check, X, Loader2, Trash2, AlertCircle } from 'lucide-react';
 import { ProjectPayout } from './ProjectPayout';
 import { ProjectFundingView } from './ProjectFundingView';
 import { ProjectHistory } from './ProjectHistory';
 import { AddInvestorModal } from './AddInvestorModal';
 import { AddExistingInvestorModal } from './AddExistingInvestorModal';
-import { fetchProjectInvestorsByMonth, fetchInvestorsByProject, fetchProjectRevenueByMonth, adminUpdateProjectName } from '../../api/services';
+import { RemoveInvestorModal } from './RemoveInvestorModal';
+import { fetchProjectInvestorsByMonth, fetchInvestorsByProject, fetchProjectRevenueByMonth, adminUpdateProjectName, removeInvestorFromProject } from '../../api/services';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 interface ProjectViewProps {
@@ -45,6 +46,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
   const [showHistory, setShowHistory] = useState(false);
   const [showAddInvestorModal, setShowAddInvestorModal] = useState(false);
   const [showAddExistingInvestorModal, setShowAddExistingInvestorModal] = useState(false);
+  const [showRemoveInvestorModal, setShowRemoveInvestorModal] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [payoutMonth, setPayoutMonth] = useState(new Date().toISOString().slice(0, 7));
   const [payoutInvestors, setPayoutInvestors] = useState<ProjectInvestor[]>([]);
@@ -88,6 +90,7 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
     }
   };
 
+
   // Create a lookup map for base investors by investor_id and email for efficient matching
   const baseInvestorsMap = useMemo(() => {
     const map = new Map();
@@ -114,28 +117,30 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
     return ((monthlyRevenue - previousMonthRevenue) / previousMonthRevenue) * 100;
   };
 
-  // Fetch all investors for the project (regardless of month)
-  useEffect(() => {
-    const fetchAllInvestors = async () => {
-      if (typeof projectId === 'object') {
-        const actualProjectId = projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID;
+  // Function to fetch all investors (can be called after removal)
+  const fetchAllInvestors = async () => {
+    if (typeof projectId === 'object') {
+      const actualProjectId = projectId.project_id || projectId.id || projectId.ID || projectId.PROJECT_ID;
 
-        if (actualProjectId) {
-          const projectIdToUse = String(actualProjectId);
-          setIsLoadingInvestors(true);
-          try {
-            const baseInvestors = await fetchInvestorsByProject(projectIdToUse);
-            setBaseProjectInvestors(baseInvestors);
-            setCurrentInvestorPage(1);
-          } catch (error) {
-            console.error('Error fetching all investors:', error);
-            setBaseProjectInvestors([]);
-          } finally {
-            setIsLoadingInvestors(false);
-          }
+      if (actualProjectId) {
+        const projectIdToUse = String(actualProjectId);
+        setIsLoadingInvestors(true);
+        try {
+          const baseInvestors = await fetchInvestorsByProject(projectIdToUse);
+          setBaseProjectInvestors(baseInvestors);
+          setCurrentInvestorPage(1);
+        } catch (error) {
+          console.error('Error fetching all investors:', error);
+          setBaseProjectInvestors([]);
+        } finally {
+          setIsLoadingInvestors(false);
         }
       }
-    };
+    }
+  };
+
+  // Fetch all investors for the project (regardless of month)
+  useEffect(() => {
     fetchAllInvestors();
   }, [projectId]);
 
@@ -599,25 +604,34 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
                 </p>
               </div>
             </div>
-            <div className="flex rounded-xl overflow-hidden border border-[var(--border-color)]">
+            <div className="flex items-center gap-3">
               <button
-                onClick={() => setSelectedInvestorView('list')}
-                className={`px-4 py-2 text-sm ${selectedInvestorView === 'list'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-card-gradient text-gray-400 hover:text-gray-300'
-                  }`}
+                onClick={() => setShowRemoveInvestorModal(true)}
+                className="flex items-center px-4 py-2 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 hover:bg-red-500/20 transition-colors"
               >
-                List View
+                <Trash2 className="h-5 w-5 mr-2" />
+                Remove an Investor
               </button>
-              <button
-                onClick={() => setSelectedInvestorView('grid')}
-                className={`px-4 py-2 text-sm ${selectedInvestorView === 'grid'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-card-gradient text-gray-400 hover:text-gray-300'
-                  }`}
-              >
-                Grid View
-              </button>
+              <div className="flex rounded-xl overflow-hidden border border-[var(--border-color)]">
+                <button
+                  onClick={() => setSelectedInvestorView('list')}
+                  className={`px-4 py-2 text-sm ${selectedInvestorView === 'list'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-card-gradient text-gray-400 hover:text-gray-300'
+                    }`}
+                >
+                  List View
+                </button>
+                <button
+                  onClick={() => setSelectedInvestorView('grid')}
+                  className={`px-4 py-2 text-sm ${selectedInvestorView === 'grid'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-card-gradient text-gray-400 hover:text-gray-300'
+                    }`}
+                >
+                  Grid View
+                </button>
+              </div>
             </div>
           </div>
 
@@ -990,6 +1004,17 @@ export function ProjectView({ projectId, onBack, initialMonth }: ProjectViewProp
         }}
         preselectedProjectId={String(project.id)}
         preselectedProjectName={project.name}
+      />
+
+      <RemoveInvestorModal
+        isOpen={showRemoveInvestorModal}
+        onClose={() => setShowRemoveInvestorModal(false)}
+        onSuccess={() => {
+          // Refresh investors list
+          fetchAllInvestors();
+        }}
+        projectId={String(project.id)}
+        projectName={project.name}
       />
 
     </main>
